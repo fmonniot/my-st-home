@@ -1,0 +1,18 @@
+[package]
+name = "mqtt-console"
+version = "0.1.0"
+authors = ["François <francois.monniot@smartthings.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+ed25519-dalek = "1"
+base64 = "0.13"
+uuid = { version = "0.8", features = ["v4"] }
+reqwest = { version = "0.11", features = ["blocking"] }
+tokio = { version = "1.2", features = ["macros", "rt"] }
+paho-mqtt = "0.9.1"
+futures = "0.3"
