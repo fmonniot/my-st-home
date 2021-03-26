@@ -1,18 +1,21 @@
 use serde::{Deserialize, Serialize};
 use std::{fs::File, io::BufReader, path::Path};
 
-mod screen;
+mod lifx;
 mod mqtt;
+mod screen;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create the screen handler
     let (join, screen) = screen::spawn();
+    let lifx = lifx::spawn().await?;
 
     // TODO Change the .with_file_name to not have to pass a dummy file name here
     let cfg = Configuration::from_directory("/home/pi/.mysthome/nothing")?;
 
-    mqtt::spawn(&cfg).await?;
+    //mqtt::spawn(&cfg).await?;
+    join.await;
 
     Ok(())
 }
