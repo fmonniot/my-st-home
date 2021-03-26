@@ -26,5 +26,5 @@ openssl = { version = '0.10', features = ["vendored"] }
 embedded-graphics = { version = "0.6.2" }
 embedded-hal = {version = "0.2.4", features = ["unproven"]}
 linux-embedded-hal = "0.3"
-epd-waveshare = "0.4.0"
+epd-waveshare = { git = "https://github.com/caemor/epd-waveshare", branch = "main" }
 rppal = { version = "0.11.3", features = ["hal-unproven"] }
