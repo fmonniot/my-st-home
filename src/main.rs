@@ -1,10 +1,10 @@
-use std::{fs::File, io::BufReader, path::Path, time::Duration};
-use serde::{Deserialize, Serialize};
 use ed25519_dalek::{Keypair, PublicKey, SecretKey, Signer};
-use tokio::time::sleep;
-use std::time::SystemTime;
-use paho_mqtt as mqtt;
 use futures::stream::StreamExt;
+use paho_mqtt as mqtt;
+use serde::{Deserialize, Serialize};
+use std::time::SystemTime;
+use std::{fs::File, io::BufReader, path::Path, time::Duration};
+use tokio::time::sleep;
 
 use embedded_graphics::{
     fonts::{Font12x16, Font6x8, Text},
@@ -20,54 +20,26 @@ use epd_waveshare::{
     graphics::{Display, DisplayRotation},
     prelude::*,
 };
-use linux_embedded_hal::{
-    spidev::{self, SpidevOptions},
-    sysfs_gpio::Direction,
-    Delay, Pin, Spidev,
-};
+use linux_embedded_hal::Delay;
+
+use rppal::spi::{Bus, Mode, Segment, SlaveSelect, Spi};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 
-    // Configure SPI
-    // Settings are taken from
-    let mut spi = Spidev::open("/dev/spidev0.0").expect("spidev directory");
-    let options = SpidevOptions::new()
-        .bits_per_word(8)
-        .max_speed_hz(4_000_000)
-        .mode(spidev::SpiModeFlags::SPI_MODE_0)
-        .build();
-    spi.configure(&options).expect("spi configuration");
+    // Configure SPI and GPIO
+    let mut spi = Spi::new(Bus::Spi0, SlaveSelect::Ss0, 4_000_000, Mode::Mode0)?;
 
-    // Configure Digital I/O Pin to be used as Chip Select for SPI
-    let cs = Pin::new(26); //BCM7 CE0
-    cs.export().expect("cs export");
-    while !cs.is_exported() {}
-    cs.set_direction(Direction::Out).expect("CS Direction");
-    cs.set_value(1).expect("CS Value set to 1");
-
-    let busy = Pin::new(5); //pin 29
-    busy.export().expect("busy export");
-    while !busy.is_exported() {}
-    busy.set_direction(Direction::In).expect("busy Direction");
-    //busy.set_value(1).expect("busy Value set to 1");
-
-    let dc = Pin::new(6); //pin 31 //bcm6
-    dc.export().expect("dc export");
-    while !dc.is_exported() {}
-    dc.set_direction(Direction::Out).expect("dc Direction");
-    dc.set_value(1).expect("dc Value set to 1");
-
-    let rst = Pin::new(16); //pin 36 //bcm16
-    rst.export().expect("rst export");
-    while !rst.is_exported() {}
-    rst.set_direction(Direction::Out).expect("rst Direction");
-    rst.set_value(1).expect("rst Value set to 1");
+    let gpio = rppal::gpio::Gpio::new().expect("gpio");
+    let cs = gpio.get(8).expect("CS").into_output();
+    let busy = gpio.get(24).expect("BUSY").into_input();
+    let dc = gpio.get(25).expect("DC").into_output();
+    let rst = gpio.get(17).expect("RST").into_output();
 
     let mut delay = Delay {};
 
-    // Display7in5, EPD7in5
+    println!("Initializing screen");
     let mut epd7in5 =
         EPD7in5::new(&mut spi, cs, busy, dc, rst, &mut delay).expect("eink initalize error");
 
@@ -143,17 +115,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("Finished tests - going to sleep");
-    epd7in5.sleep(&mut spi);
-
+    epd7in5.sleep(&mut spi).expect("screen goes to sleep");
 
     return Ok(());
 
     // TODO Change the .with_file_name to not have to pass a dummy file name here
-    let cfg = Configuration::from_directory("/Users/francoismonniot/Projects/local/mqtt-console/data/project/nothing")?;
+    let cfg = Configuration::from_directory(
+        "/Users/francoismonniot/Projects/local/mqtt-console/data/project/nothing",
+    )?;
 
     if cfg.onboarding.identity_type != "ED25519" {
-        println!("Only ED25519 keys are supported at the moment. {} passed", cfg.onboarding.identity_type);
-        return Ok(()) // TODO return an error
+        println!(
+            "Only ED25519 keys are supported at the moment. {} passed",
+            cfg.onboarding.identity_type
+        );
+        return Ok(()); // TODO return an error
     }
 
     println!("Configuration: {:#?}\n", cfg);
@@ -164,12 +140,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let public_key: PublicKey = PublicKey::from_bytes(&public_key_bytes)?;
     let secret_key: SecretKey = SecretKey::from_bytes(&private_key_bytes)?;
-    let keypair = Keypair { public: public_key, secret: secret_key };
+    let keypair = Keypair {
+        public: public_key,
+        secret: secret_key,
+    };
 
     let header = Header::with_serial(&cfg.device_info.serial_number);
     let body = Body::generate(cfg.onboarding.mn_id.clone());
     let jwt = generate_jwt(header, body, &keypair)?;
-
 
     //
     // Hack something for MQTT and then try to find a good abstraction for other to use
@@ -182,8 +160,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .create_client()?;
 
     // Need to pass those, otherwise the c lib fails on NULL…
-    let ssl_opts = mqtt::SslOptionsBuilder::new()
-        .finalize();
+    let ssl_opts = mqtt::SslOptionsBuilder::new().finalize();
 
     let conn_options = mqtt::ConnectOptionsBuilder::new()
         .clean_session(true)
@@ -192,9 +169,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .mqtt_version(mqtt::MQTT_VERSION_3_1_1)
         .ssl_options(ssl_opts)
         .finalize();
-    
 
-        
     // connect
     mqtt_client.connect(conn_options).await?;
     let mut messages = mqtt_client.get_stream(25);
@@ -214,12 +189,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         while let Some(msg_opt) = messages.next().await {
             if let Some(msg) = msg_opt {
-
                 let topic = msg.topic();
                 let _payload = msg.payload();
 
                 println!("Received message on {}: {}", topic, msg.payload_str());
-
             } else {
                 // A "None" means we were disconnected.
             }
@@ -238,7 +211,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-
 fn draw_text(display: &mut Display7in5, text: &str, x: i32, y: i32) {
     let _ = Text::new(text, Point::new(x, y))
         .into_styled(text_style!(
@@ -251,7 +223,11 @@ fn draw_text(display: &mut Display7in5, text: &str, x: i32, y: i32) {
 
 // JWT (custom implementation for now. TODO see if we can use a standard crate)
 
-fn generate_jwt(header: Header, body: Body, keypair: &Keypair) -> Result<String, Box<dyn std::error::Error>> {
+fn generate_jwt(
+    header: Header,
+    body: Body,
+    keypair: &Keypair,
+) -> Result<String, Box<dyn std::error::Error>> {
     let h = serde_json::to_vec(&header)?;
     let b = serde_json::to_vec(&body)?;
 
@@ -264,16 +240,15 @@ fn generate_jwt(header: Header, body: Body, keypair: &Keypair) -> Result<String,
     Ok(format!("{}.{}.{}", h2, b2, base64::encode(signature)))
 }
 
-
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct Header {
-  alg: String,
-  kty: String,
-  crv: String,
-  typ: String,
-  ver: String,
-  kid: String,
+    alg: String,
+    kty: String,
+    crv: String,
+    typ: String,
+    ver: String,
+    kid: String,
 }
 
 impl Header {
@@ -301,17 +276,15 @@ impl Body {
     fn generate(mn_id: String) -> Body {
         let jti = uuid::Uuid::new_v4().to_hyphenated().to_string();
         let sys_time = SystemTime::now();
-        let iat = sys_time.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+        let iat = sys_time
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         let iat = format!("{}", iat);
 
-        Body {
-            iat,
-            jti,
-            mn_id
-        }
+        Body { iat, jti, mn_id }
     }
 }
-
 
 // Configuration
 
@@ -325,23 +298,25 @@ struct Configuration {
 
 impl Configuration {
     fn from_directory<P: AsRef<Path>>(p: P) -> Result<Configuration, Box<dyn std::error::Error>> {
-
         let path = p.as_ref();
-        
+
         let di: DeviceInfoFile = read_json_from_file(path.with_file_name("device_info.json"))?;
         let meta: MetaFile = read_json_from_file(path.with_file_name("meta.json"))?;
-        let of: OnboardingConfigFile = read_json_from_file(path.with_file_name("onboarding_config.json"))?;
+        let of: OnboardingConfigFile =
+            read_json_from_file(path.with_file_name("onboarding_config.json"))?;
 
         Ok(Configuration {
             device_info: di.device_info,
             stcli: di.stcli,
             meta,
-            onboarding: of.onboarding_config
+            onboarding: of.onboarding_config,
         })
     }
 }
 
-fn read_json_from_file<P: AsRef<Path>, T: serde::de::DeserializeOwned>(path: P) -> Result<T, Box<dyn std::error::Error>> {
+fn read_json_from_file<P: AsRef<Path>, T: serde::de::DeserializeOwned>(
+    path: P,
+) -> Result<T, Box<dyn std::error::Error>> {
     // Open the file in read-only mode with buffer.
     println!("Reading file: {:?}", path.as_ref());
     let file = File::open(path)?;
@@ -371,7 +346,7 @@ struct DeviceInfo {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct StCli {
-    device_id: String
+    device_id: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -383,7 +358,7 @@ struct MetaFile {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct OnboardingConfigFile {
-    onboarding_config: OnboardingConfig
+    onboarding_config: OnboardingConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
