@@ -1,3 +1,4 @@
 {
-    "rust-analyzer.cargo.target": "armv7-unknown-linux-gnueabihf"
+    "rust-analyzer.cargo.target": "armv7-unknown-linux-gnueabihf",
+    "rust-analyzer.procMacro.enable": true,
 }
