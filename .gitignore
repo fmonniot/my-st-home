@@ -2,3 +2,4 @@
 
 # Contains the information about the project in ST, including device keys
 data/project
+api.http

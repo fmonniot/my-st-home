@@ -16,3 +16,14 @@ reqwest = { version = "0.11", features = ["blocking"] }
 tokio = { version = "1.2", features = ["macros", "rt"] }
 paho-mqtt = "0.9.1"
 futures = "0.3"
+
+# paho depends on 0.9, but only 0.10 offers the vendored feature.
+# I'm assuming the the lib is stable enough for our use case. Long term
+# we should move away from paho and to a lib which use rustls
+openssl = { version = '0.10', features = ["vendored"] }
+
+
+embedded-graphics = { version = "0.6.2" }
+embedded-hal = {version = "0.2.4", features = ["unproven"]}
+linux-embedded-hal = "0.3"
+epd-waveshare = "0.4.0"
