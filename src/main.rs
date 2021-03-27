@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::{fs::File, io::BufReader, path::Path};
 
 mod lifx;
-//mod mqtt;
+mod mqtt;
 mod screen;
 
 #[tokio::main]
