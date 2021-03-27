@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{fs::File, io::BufReader, path::Path};
 
+mod delay;
 mod lifx;
 mod mqtt;
 mod screen;
@@ -9,7 +10,7 @@ mod screen;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO Change the .with_file_name to not have to pass a dummy file name here
     let _cfg = Configuration::from_directory("/home/pi/.mysthome/nothing")?;
- 
+
     // Create our background processors (lifx, screen, mqtt, ST events)
     let (screen_join_handle, screen_handle) = screen::spawn();
     let lifx = lifx::spawn().await?;
@@ -19,7 +20,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Dummy thing, to avoid unused warn until we have the real logic
     screen_handle.update(screen::ScreenMessage::UpdateLifxBulb {
-        source: 0, power: true
+        source: 0,
+        power: true,
     })?;
 
     // At the end, await the end of the background processes

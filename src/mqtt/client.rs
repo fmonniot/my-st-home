@@ -1,13 +1,13 @@
+#![allow(warnings, unused, dead_code)] // Still working on this module :)
+
 use futures::Stream;
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 
-
-
-struct MqttClient {
-
-}
+struct MqttClient {}
 enum QoS {
-    QoS_0,QoS_1,QoS_2
+    QoS_0,
+    QoS_1,
+    QoS_2,
 }
 
 struct TopicSubscription(String, QoS);
@@ -25,25 +25,29 @@ pub struct Publish {
 }
 
 impl MqttClient {
-
     pub fn new<T>(&self, opts: T) -> MqttClient
-    where T: Into<Option<ConnectOptions>> {
+    where
+        T: Into<Option<ConnectOptions>>,
+    {
         unimplemented!()
     }
 
     // TODO Probably implement our own enum error here. We may want to include more
     // cases (disconnected for example. not sure tbh).
-    pub fn subscriptions(&self) -> impl Stream<Item = Result<(),BroadcastStreamRecvError >> {
+    //pub fn subscriptions(&self) -> impl Stream<Item = Result<(), BroadcastStreamRecvError>> {
         // it's a known error that unimplemented/todo macros cannot fill in impl Trait.
         // Will have to live with the compiler error until I put the queue in here
-        unimplemented!()
-    }
-    
+      //  unimplemented!()
+    //}
+
     pub async fn connect(&self) -> ConnectReturnCode {
         unimplemented!()
     }
 
-    pub async fn subscribe<I: Iterator<Item = TopicSubscription>>(&self, topics: I) -> SubscribeResponse {
+    pub async fn subscribe<I: Iterator<Item = TopicSubscription>>(
+        &self,
+        topics: I,
+    ) -> SubscribeResponse {
         unimplemented!()
     }
 
@@ -54,5 +58,4 @@ impl MqttClient {
     pub async fn publish(&self, message: Publish) -> Result<(), ()> {
         unimplemented!()
     }
-
 }

@@ -30,6 +30,7 @@ bytes = "1"
 
 embedded-graphics = { version = "0.6.2" }
 embedded-hal = {version = "0.2.4", features = ["unproven"]}
-linux-embedded-hal = "0.3"
 epd-waveshare = { git = "https://github.com/caemor/epd-waveshare", branch = "main" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
 rppal = { version = "0.11.3", features = ["hal-unproven"] }

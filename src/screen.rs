@@ -1,3 +1,4 @@
+use crate::delay::Delay;
 use embedded_graphics::{
     fonts::{Font12x16, Font6x8, Text},
     prelude::*,
@@ -12,9 +13,7 @@ use epd_waveshare::{
     graphics::Display,
     prelude::*,
 };
-use linux_embedded_hal::Delay;
-
-use rppal::spi::{Bus, Mode, SlaveSelect, Spi};
+use embedded_hal::{digital::v2::{OutputPin, InputPin}, blocking::spi::Write};
 
 use tokio::task::JoinHandle;
 
@@ -23,31 +22,32 @@ pub struct ScreenHandle {
 }
 
 impl ScreenHandle {
-    pub fn update(&self, msg: ScreenMessage) -> Result<(), std::sync::mpsc::SendError<ScreenMessage>> {
+    pub fn update(
+        &self,
+        msg: ScreenMessage,
+    ) -> Result<(), std::sync::mpsc::SendError<ScreenMessage>> {
         self.sender.send(msg)
     }
 }
 
 pub enum ScreenMessage {
-
-UpdateLifxBulb {
-    source: u32,
-    power: bool,
- }
+    UpdateLifxBulb { source: u32, power: bool },
 }
 
-fn screen_run_loop(
+// TODO Rename to something else, handle_message perhaps ?
+fn screen_run_loop<SPI, SPIE, CS, BUSY, DC, RST>(
     receiver: std::sync::mpsc::Receiver<ScreenMessage>,
-    mut screen: EPD7in5<
-        Spi,
-        rppal::gpio::OutputPin,
-        rppal::gpio::InputPin,
-        rppal::gpio::OutputPin,
-        rppal::gpio::OutputPin,
-    >,
-    mut spi: Spi,
+    mut screen: EPD7in5<SPI, CS, BUSY, DC, RST>,
+    mut spi: SPI,
     mut delay: Delay,
-) {
+) where
+SPI: Write<u8, Error = SPIE>,
+SPIE: std::fmt::Debug,
+    CS: OutputPin,
+    BUSY: InputPin,
+    DC: OutputPin,
+    RST: OutputPin,
+{
     // First a one off to test out things
     println!("Test all the rotations");
     let mut display = Display7in5::default(); // display is the display buffer
@@ -90,31 +90,52 @@ fn screen_run_loop(
     for _message in receiver.recv() {}
 }
 
-pub fn spawn() -> (JoinHandle<()>, ScreenHandle) {
+#[cfg(target_os = "linux")]
+fn create_run_loop(receiver: std::sync::mpsc::Receiver<ScreenMessage>) -> JoinHandle<()> {
+    use rppal::spi::{Bus, Mode, SlaveSelect, Spi};
+    use rppal::gpio::Gpio;
+
+
+    println!("Initializing screen");
+
     // Configure SPI and GPIO
     let mut spi = Spi::new(Bus::Spi0, SlaveSelect::Ss0, 4_000_000, Mode::Mode0).expect("spi bus");
 
-    let gpio = rppal::gpio::Gpio::new().expect("gpio");
+    let gpio = Gpio::new().expect("gpio");
     let cs = gpio.get(8).expect("CS").into_output();
     let busy = gpio.get(24).expect("BUSY").into_input();
     let dc = gpio.get(25).expect("DC").into_output();
     let rst = gpio.get(17).expect("RST").into_output();
-
+    
     let mut delay = Delay {};
 
     // Configure the screen before creating the run loop
-    println!("Initializing screen");
     let epd7in5 =
         EPD7in5::new(&mut spi, cs, busy, dc, rst, &mut delay).expect("eink initalize error");
 
+    // The screen run loop is entirely synchronous (SPI comm is sync and doesn't have an async
+    // wrapper around it), so we use spawn_blocking
+    tokio::task::spawn_blocking(move || {
+        screen_run_loop(receiver, epd7in5, spi, delay);
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn create_run_loop(receiver: std::sync::mpsc::Receiver<ScreenMessage>) -> JoinHandle<()> {
+    println!("No display available on this target. Screen messages will be ignored.");
+
+    tokio::spawn(async move {
+        for _message in receiver.recv() {}
+    })
+}
+
+
+pub fn spawn() -> (JoinHandle<()>, ScreenHandle) {
     // Then create the communication channel
     let (sender, receiver) = std::sync::mpsc::channel();
 
-    // The screen run loop is entirely synchronous (SPI comm is sync and doesn't have an async
-    // wrapper around it), so we use spawn_blocking
-    let handle = tokio::task::spawn_blocking(move || {
-        screen_run_loop(receiver, epd7in5, spi, delay);
-    });
+    
+    let handle = create_run_loop(receiver);
 
     (handle, ScreenHandle { sender })
 }
