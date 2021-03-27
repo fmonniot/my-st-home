@@ -9,21 +9,32 @@ use embedded_hal::prelude::*;
 use epd_waveshare::{
     color::*,
     epd7in5_v2::{Display7in5, EPD7in5},
-    graphics::{Display, DisplayRotation},
+    graphics::Display,
     prelude::*,
 };
 use linux_embedded_hal::Delay;
 
 use rppal::spi::{Bus, Mode, SlaveSelect, Spi};
 
-use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 pub struct ScreenHandle {
     sender: std::sync::mpsc::Sender<ScreenMessage>,
 }
 
-enum ScreenMessage {}
+impl ScreenHandle {
+    pub fn update(&self, msg: ScreenMessage) -> Result<(), std::sync::mpsc::SendError<ScreenMessage>> {
+        self.sender.send(msg)
+    }
+}
+
+pub enum ScreenMessage {
+
+UpdateLifxBulb {
+    source: u32,
+    power: bool,
+ }
+}
 
 fn screen_run_loop(
     receiver: std::sync::mpsc::Receiver<ScreenMessage>,
@@ -69,6 +80,8 @@ fn screen_run_loop(
     screen
         .display_frame(&mut spi)
         .expect("display frame new graphics");
+
+    delay.delay_ms(2_000u16); // Wait for the screen to refresh, take between 2~5 seconds.
 
     println!("Finished tests - going to sleep");
     screen.sleep(&mut spi).expect("screen goes to sleep");

@@ -1,17 +1,15 @@
-use tokio::{net::UdpSocket, task::JoinHandle};
-use tokio_util::udp::UdpFramed;
-use tokio_util::codec::BytesCodec;
-use futures::{SinkExt, Stream, StreamExt, stream::SplitSink};
-use std::time::{Duration, Instant};
-use std::net::SocketAddr;
 use bytes::{Bytes, BytesMut};
+use futures::{stream::SplitSink, SinkExt, Stream, StreamExt};
+use std::net::SocketAddr;
+use std::time::Instant;
+use tokio::{net::UdpSocket, task::JoinHandle};
+use tokio_util::codec::BytesCodec;
+use tokio_util::udp::UdpFramed;
 
-use lifx_core::{get_product_info, BuildOptions, Message, PowerLevel, RawMessage, Service, HSBK};
+use lifx_core::{BuildOptions, Message, RawMessage};
 
 // API with the underlying lifx machinery
-pub struct LifxHandle {
-
-}
+pub struct LifxHandle {}
 
 // Represent the running Lifx process
 pub struct LifxTask {
@@ -29,6 +27,11 @@ impl LifxTask {
         LifxHandle {}
     }
 
+    // TODO Might be better to implement the trait ourselves
+    pub async fn join_handle(self) -> Result<(), tokio::task::JoinError> {
+        self.net_join.await
+    }
+
     // TODO Return a Result (instead of expecting everything)
     pub async fn discover(&mut self) {
         println!("Starting bulbs discovery");
@@ -37,12 +40,18 @@ impl LifxTask {
             source: self.source,
             ..Default::default()
         };
-        let raw_msg = RawMessage::build(&opts, Message::GetService).expect("GetService raw message");
+        let raw_msg =
+            RawMessage::build(&opts, Message::GetService).expect("GetService raw message");
         let bytes = raw_msg.pack().expect("can encode lifx message").into();
 
-        let target = "192.168.1.255:56700".parse().expect("correct hardcoded broadcast address");
+        let target = "192.168.1.255:56700"
+            .parse()
+            .expect("correct hardcoded broadcast address");
 
-        self.socket_sink.send((bytes, target)).await.expect("no error sending datagram");
+        self.socket_sink
+            .send((bytes, target))
+            .await
+            .expect("no error sending datagram");
     }
 }
 
@@ -50,21 +59,29 @@ pub async fn spawn() -> Result<LifxTask, Box<dyn std::error::Error>> {
     let socket = UdpSocket::bind("0.0.0.0:56700").await?;
     socket.set_broadcast(true)?;
 
-    let (mut socket_sink, mut socket_stream) =
-        UdpFramed::new(socket, BytesCodec::new()).split();
+    let (socket_sink, socket_stream) = UdpFramed::new(socket, BytesCodec::new()).split();
 
     let source = 0x72757374;
-    
+
     let net_join = tokio::spawn(network_receive(socket_stream, source));
 
-    let mut task = LifxTask {net_join, socket_sink, source};
+    let mut task = LifxTask {
+        net_join,
+        socket_sink,
+        source,
+    };
 
     task.discover().await;
 
     Ok(task)
 }
 
-async fn network_receive<S: Stream<Item = Result<(BytesMut, SocketAddr), std::io::Error>> + Unpin>(mut socket_stream: S, source: u32) {
+async fn network_receive<
+    S: Stream<Item = Result<(BytesMut, SocketAddr), std::io::Error>> + Unpin,
+>(
+    mut socket_stream: S,
+    source: u32,
+) {
     while let Some(res) = socket_stream.next().await {
         match res {
             Ok((bytes, addr)) => {
@@ -86,7 +103,7 @@ async fn network_receive<S: Stream<Item = Result<(BytesMut, SocketAddr), std::io
             }
             Err(error) => {
                 // TODO Handle correctly
-                println!("Error while reading udp datagram for lifx")
+                println!("Error while reading udp datagram for lifx: {}", error)
             }
         }
     }
@@ -113,12 +130,14 @@ impl BulbInfo {
             last_seen: Instant::now(),
             source,
             target,
-            addr
+            addr,
         }
     }
 
+    /*
     fn update(&mut self, addr: SocketAddr) {
         self.last_seen = Instant::now();
         self.addr = addr;
     }
+     */
 }
