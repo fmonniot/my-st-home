@@ -36,7 +36,8 @@ impl Publish {
     pub fn new<S: Into<String>>(topic: S, payload: Vec<u8>, qos: QualityOfService) -> Publish {
         Publish {
             topic: topic.into(),
-            payload, qos
+            payload,
+            qos,
         }
     }
 }
@@ -218,7 +219,9 @@ impl MqttClient {
     /// recommend to create one Stream before creating the actual subscriptions.
     // TODO Probably implement our own enum error here. We may want to include more
     // cases (disconnected for example. not sure tbh).
-    pub fn subscriptions(&self) -> impl Stream<Item = Result<SubMessage, BroadcastStreamRecvError>> {
+    pub fn subscriptions(
+        &self,
+    ) -> impl Stream<Item = Result<SubMessage, BroadcastStreamRecvError>> {
         let receiver = self.messages.subscribe();
 
         let a = tokio_stream::wrappers::BroadcastStream::new(self.messages.subscribe());

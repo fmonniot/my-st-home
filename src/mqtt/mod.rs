@@ -1,10 +1,10 @@
 use ed25519_dalek::{Keypair, PublicKey, SecretKey, Signer};
 use futures::stream::StreamExt;
+use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use std::time::SystemTime;
 use tokio::time::sleep;
-use log::{debug, info};
 
 use super::Configuration;
 
@@ -41,17 +41,17 @@ pub(super) async fn spawn(cfg: &Configuration) -> Result<(), Box<dyn std::error:
     //
 
     //.server_uri("ssl://mqtt-regional-useast1.api.smartthings.com:8883")
-    let mut mqtt_client = client::MqttClient::builder("mqtt-regional-useast1.api.smartthings.com", 8883)
-        .set_client_id("mqtt-console-rs")
-        .set_password(jwt)
-        .set_keep_alive(client::KeepAlive::Enabled { secs: 60 })
-        .set_user_name(&cfg.stcli.device_id)
-        .build();
+    let mut mqtt_client =
+        client::MqttClient::builder("mqtt-regional-useast1.api.smartthings.com", 8883)
+            .set_client_id("mqtt-console-rs")
+            .set_password(jwt)
+            .set_keep_alive(client::KeepAlive::Enabled { secs: 60 })
+            .set_user_name(&cfg.stcli.device_id)
+            .build();
 
     // connect
     let code = mqtt_client.connect().await;
     debug!("client.connect() returned {:?}", code);
-
 
     let mut messages = mqtt_client.subscriptions();
 
@@ -59,8 +59,14 @@ pub(super) async fn spawn(cfg: &Configuration) -> Result<(), Box<dyn std::error:
 
     // subscribe
     let topics = [
-        (format!("/v1/commands/{}", &cfg.stcli.device_id), client::QualityOfService::Level0),
-        (format!("/v1/notifications/{}", &cfg.stcli.device_id), client::QualityOfService::Level0),
+        (
+            format!("/v1/commands/{}", &cfg.stcli.device_id),
+            client::QualityOfService::Level0,
+        ),
+        (
+            format!("/v1/notifications/{}", &cfg.stcli.device_id),
+            client::QualityOfService::Level0,
+        ),
     ];
     mqtt_client.subscribe(topics.to_vec()).await?;
 
@@ -82,7 +88,11 @@ pub(super) async fn spawn(cfg: &Configuration) -> Result<(), Box<dyn std::error:
     });
 
     let topic = format!("/v1/deviceEvents/{}", cfg.stcli.device_id);
-    let msg = client::Publish::new(topic, "{}".as_bytes().to_vec(), client::QualityOfService::Level1);
+    let msg = client::Publish::new(
+        topic,
+        "{}".as_bytes().to_vec(),
+        client::QualityOfService::Level1,
+    );
     mqtt_client.publish(msg).await?;
 
     //mqtt_client.disconnect().await?;

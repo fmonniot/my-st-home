@@ -1,11 +1,11 @@
 use bytes::{Bytes, BytesMut};
 use futures::{stream::SplitSink, SinkExt, Stream, StreamExt};
+use log::{debug, info, warn};
 use std::net::SocketAddr;
 use std::time::Instant;
 use tokio::{net::UdpSocket, task::JoinHandle};
 use tokio_util::codec::BytesCodec;
 use tokio_util::udp::UdpFramed;
-use log::{debug, info, warn};
 
 use lifx_core::{BuildOptions, Message, RawMessage};
 
