@@ -8,6 +8,8 @@ mod screen;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::init();
+
     // TODO Change the .with_file_name to not have to pass a dummy file name here
     #[cfg(target_os = "linux")]
     let cfg = Configuration::from_directory("/home/pi/.mysthome/nothing")?;
