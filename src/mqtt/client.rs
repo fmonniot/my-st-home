@@ -33,6 +33,7 @@ pub struct Publish {
 //stubs
 type ConnectOptions = ();
 
+// TODO Remove the disabled case, as ST's MQTT requires it
 #[derive(Clone)]
 pub enum KeepAlive {
     /// Keep alive ping packets are disabled.
@@ -44,6 +45,16 @@ pub enum KeepAlive {
         secs: u16,
     },
 }
+
+impl KeepAlive {
+    fn to_duration(&self) -> Option<tokio::time::Duration> {
+        match &self {
+            KeepAlive::Disabled => None,
+            KeepAlive::Enabled { secs } => Some(tokio::time::Duration::from_secs(*secs as u64)),
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
     // Use String instead of runloop::HandleError to not leak private type
@@ -273,11 +284,13 @@ mod runloop {
         topic_filter::TopicFilter,
         QualityOfService, TopicName,
     };
+    use protocol::packet;
     use std::{collections::BTreeMap, sync::Arc};
     use tokio::net::TcpStream;
     use tokio::{
         net::tcp,
         sync::{broadcast, mpsc, oneshot, RwLock},
+        time::{sleep_until, Duration, Instant},
     };
     use tokio_rustls::{rustls::ClientConfig, webpki::DNSNameRef, TlsConnector};
     use tokio_stream::StreamExt;
@@ -363,6 +376,9 @@ mod runloop {
         /// when reached u16 limit. We assume by that time, we will have freed the first
         /// packet ids.
         last_pid: u16,
+
+        last_server_write: Instant,
+        last_client_write: Instant,
     }
 
     impl ConnectionState {
@@ -388,6 +404,7 @@ mod runloop {
         ),
         Unsubscribe(),
         Disconnect(),
+        Ping(),
     }
 
     // TODO Remove TCP once I got the basic working. That will simplify the type signature quite a bit (use impl Trait and no boxing)
@@ -486,6 +503,8 @@ mod runloop {
             outstanding_pub: BTreeMap::new(),
             outstanding_sub: BTreeMap::new(),
             last_pid: 0,
+            last_client_write: Instant::now(),
+            last_server_write: Instant::now(),
         }));
 
         // spawn tasks
@@ -499,8 +518,13 @@ mod runloop {
             async move { network_read(state, packet_stream, timer_tx, enqueue_pub, read_shutdown).await }
         });
         let t = tokio::spawn({
-            let state = state.clone();
-            async move { keep_alive(state, timer_rx, keep_alive_shutdown).await }
+            let shutdown = shutdown.clone();
+            let duration = opts
+                .keep_alive
+                .to_duration()
+                .expect("keep alive is mandatory");
+            let write_tx = write_tx.clone();
+            async move { keep_alive(duration, timer_rx, write_tx, keep_alive_shutdown, shutdown).await }
         });
 
         Handle {
@@ -652,6 +676,11 @@ mod runloop {
                 }
                 Some(Either::Left(WriterCommand::Unsubscribe())) => {}
                 Some(Either::Left(WriterCommand::Disconnect())) => {}
+                Some(Either::Left(WriterCommand::Ping())) => {
+                    packet_sink
+                        .send(protocol::packet::PingreqPacket::new().into())
+                        .await;
+                }
                 Some(Either::Right(e)) => {
                     if e.is_err() {
                         error!("shutdown receiver lagged behind, which should not happen as it's used as a deferred");
@@ -668,12 +697,67 @@ mod runloop {
         }
     }
 
-    // TODO
-    // handle keep alive timings
+    use futures::Future;
+    //
+    /// handle keep alive timings
+    ///
+    /// To keep the keep alive logic simple, we don't take into account other packet activity.
+    /// This means we simply send a pingreq every keepalive_duration and expect the ping resp.
+    ///
+    /// Arguments:
+    /// - `ping_resps`: Signal we received a PINGRESP from the server
+    /// - `shutdown_signal`: Signal from the runloop to shut down
+    /// - `shut`: Signal to the runloop we need to shut down
     async fn keep_alive(
-        state: Arc<RwLock<ConnectionState>>,
-        ping_resps: mpsc::Receiver<()>,
-        shutdown: broadcast::Receiver<()>,
+        keepalive_duration: Duration,
+        mut ping_resps: mpsc::Receiver<()>,
+        mut write_tx: mpsc::Sender<WriterCommand>,
+        mut shutdown_signal: broadcast::Receiver<()>,
+        mut shut: broadcast::Sender<()>,
     ) {
+        use futures::FutureExt;
+
+        // When we reach this time, we should be within milliseconds of the CONNECT packet. We can assume
+        // this time is the same as the last ping (server is only interested in activity).
+        let mut last_ping_sent = Instant::now();
+        let mut waiting_resp = false;
+        loop {
+            let mut resp_timeout = if waiting_resp {
+                sleep_until(last_ping_sent + Duration::from_secs(20))
+                    .boxed()
+                    .fuse()
+            } else {
+                futures::future::pending().boxed().fuse()
+            };
+
+            // Wait for the next event
+            let res: u8 = futures::select! {
+                ping_req = sleep_until(last_ping_sent + keepalive_duration).boxed().fuse() => 0,
+                ping_resp = ping_resps.recv().boxed().fuse() => 1,
+                resp_timeout = resp_timeout => 2,
+                shutdown = shutdown_signal.recv().boxed().fuse() => 3,
+            };
+
+            match res {
+                0 => {
+                    debug!("Sending PINGREQ packet");
+                    waiting_resp = true;
+                    last_ping_sent = Instant::now();
+                    write_tx.send(WriterCommand::Ping()).await;
+                }
+                1 => {
+                    debug!("Received PINGRESP packet");
+                    waiting_resp = false;
+                }
+                2 => {
+                    warn!("Didn't received a PINGRESP within 20 seconds, shutting down");
+                    shut.send(());
+                }
+                _ => {
+                    // Received a shutdown message
+                    break;
+                }
+            }
+        }
     }
 }
