@@ -5,6 +5,7 @@ use std::time::Instant;
 use tokio::{net::UdpSocket, task::JoinHandle};
 use tokio_util::codec::BytesCodec;
 use tokio_util::udp::UdpFramed;
+use log::{debug, info, warn};
 
 use lifx_core::{BuildOptions, Message, RawMessage};
 
@@ -34,7 +35,7 @@ impl LifxTask {
 
     // TODO Return a Result (instead of expecting everything)
     pub async fn discover(&mut self) {
-        println!("Starting bulbs discovery");
+        info!("Starting LIFX bulbs discovery");
 
         let opts = BuildOptions {
             source: self.source,
@@ -88,22 +89,22 @@ async fn network_receive<
                 match RawMessage::unpack(&bytes) {
                     Ok(raw) => {
                         if raw.frame_addr.target == 0 {
-                            println!("raw.frame_addr.target == 0 for raw={:?}", raw);
+                            debug!("raw.frame_addr.target == 0 for raw={:?}", raw);
                             continue;
                         }
 
                         let bulb = BulbInfo::new(source, raw.frame_addr.target, addr);
-                        println!("Received messages from bulb {:?}", bulb);
+                        debug!("Received messages from bulb {:?}", bulb);
                     }
                     Err(error) => {
                         // TODO Handle
-                        println!("Error unpacking raw message from {}: {}", addr, error)
+                        warn!("Error unpacking raw message from {}: {}", addr, error)
                     }
                 }
             }
             Err(error) => {
                 // TODO Handle correctly
-                println!("Error while reading udp datagram for lifx: {}", error)
+                warn!("Error while reading udp datagram for lifx: {}", error)
             }
         }
     }
