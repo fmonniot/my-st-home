@@ -9,9 +9,16 @@ mod screen;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO Change the .with_file_name to not have to pass a dummy file name here
-    let _cfg = Configuration::from_directory("/home/pi/.mysthome/nothing")?;
+    #[cfg(target_os = "linux")]
+    let cfg = Configuration::from_directory("/home/pi/.mysthome/nothing")?;
+
+    #[cfg(not(target_os = "linux"))]
+    let cfg = Configuration::from_directory(
+        "/Users/francoismonniot/Projects/local/my-st-home/data/project/nothing",
+    )?;
 
     // Create our background processors (lifx, screen, mqtt, ST events)
+    let stdk = mqtt::spawn(&cfg).await?;
     let (screen_join_handle, screen_handle) = screen::spawn();
     let lifx = lifx::spawn().await?;
 

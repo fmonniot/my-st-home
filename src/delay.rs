@@ -1,5 +1,5 @@
-use std::time::Duration;
 use std::thread;
+use std::time::Duration;
 
 /// Empty struct that provides delay functionality on top of `thread::sleep`
 pub struct Delay;

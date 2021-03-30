@@ -7,13 +7,16 @@ use embedded_graphics::{
     text_style,
 };
 use embedded_hal::prelude::*;
+use embedded_hal::{
+    blocking::spi::Write,
+    digital::v2::{InputPin, OutputPin},
+};
 use epd_waveshare::{
     color::*,
     epd7in5_v2::{Display7in5, EPD7in5},
     graphics::Display,
     prelude::*,
 };
-use embedded_hal::{digital::v2::{OutputPin, InputPin}, blocking::spi::Write};
 
 use tokio::task::JoinHandle;
 
@@ -41,8 +44,8 @@ fn screen_run_loop<SPI, SPIE, CS, BUSY, DC, RST>(
     mut spi: SPI,
     mut delay: Delay,
 ) where
-SPI: Write<u8, Error = SPIE>,
-SPIE: std::fmt::Debug,
+    SPI: Write<u8, Error = SPIE>,
+    SPIE: std::fmt::Debug,
     CS: OutputPin,
     BUSY: InputPin,
     DC: OutputPin,
@@ -92,9 +95,8 @@ SPIE: std::fmt::Debug,
 
 #[cfg(target_os = "linux")]
 fn create_run_loop(receiver: std::sync::mpsc::Receiver<ScreenMessage>) -> JoinHandle<()> {
-    use rppal::spi::{Bus, Mode, SlaveSelect, Spi};
     use rppal::gpio::Gpio;
-
+    use rppal::spi::{Bus, Mode, SlaveSelect, Spi};
 
     println!("Initializing screen");
 
@@ -106,7 +108,7 @@ fn create_run_loop(receiver: std::sync::mpsc::Receiver<ScreenMessage>) -> JoinHa
     let busy = gpio.get(24).expect("BUSY").into_input();
     let dc = gpio.get(25).expect("DC").into_output();
     let rst = gpio.get(17).expect("RST").into_output();
-    
+
     let mut delay = Delay {};
 
     // Configure the screen before creating the run loop
@@ -124,17 +126,13 @@ fn create_run_loop(receiver: std::sync::mpsc::Receiver<ScreenMessage>) -> JoinHa
 fn create_run_loop(receiver: std::sync::mpsc::Receiver<ScreenMessage>) -> JoinHandle<()> {
     println!("No display available on this target. Screen messages will be ignored.");
 
-    tokio::spawn(async move {
-        for _message in receiver.recv() {}
-    })
+    tokio::spawn(async move { for _message in receiver.recv() {} })
 }
-
 
 pub fn spawn() -> (JoinHandle<()>, ScreenHandle) {
     // Then create the communication channel
     let (sender, receiver) = std::sync::mpsc::channel();
 
-    
     let handle = create_run_loop(receiver);
 
     (handle, ScreenHandle { sender })

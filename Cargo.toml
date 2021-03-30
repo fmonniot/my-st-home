@@ -21,11 +21,13 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 futures = "0.3"
 lifx-core = "0.2"
 bytes = "1"
-
-# paho depends on 0.9, but only 0.10 offers the vendored feature.
-# I'm assuming the the lib is stable enough for our use case. Long term
-# we should move away from paho and to a lib which use rustls
-#openssl = { version = '0.10', features = ["vendored"] }
+mqtt-protocol = { git = "https://github.com/zonyitoo/mqtt-rs", branch = "master", features = [ "tokio-codec" ] } # version = "0.11" when released
+rustls = "0.19"
+tokio-rustls = "0.22.0"
+rustls-native-certs = "0.5.0"
+log = "0.4"
+thiserror = "1.0.21"
+either = "1.6.1"
 
 
 embedded-graphics = { version = "0.6.2" }
