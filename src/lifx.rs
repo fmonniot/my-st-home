@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use std::{net::SocketAddr, sync::Arc};
 use tokio::{net::UdpSocket, sync::RwLock, task::JoinHandle};
 
-use lifx_core::{BuildOptions, Message, PowerLevel, RawMessage, HSBK};
+use lifx_core::{get_product_info, BuildOptions, Message, PowerLevel, RawMessage, HSBK};
 
 // API with the underlying lifx machinery
 pub struct LifxHandle {}
@@ -148,6 +148,18 @@ fn handle_bulb_message(raw: RawMessage, bulb: &mut BulbInfo) -> Result<(), lifx_
                 warn!("Unsupported service: {:?}/{}", service, port);
             }
         }
+        Message::StateVersion {
+            vendor, product, ..
+        } => {
+            //bulb.model.update((vendor, product));
+            if let Some(info) = get_product_info(vendor, product) {
+                if info.multizone {
+                    bulb.color = Color::Multi(None)
+                } else {
+                    bulb.color = Color::Single(None)
+                }
+            }
+        }
         Message::StateLabel { label } => bulb.name = Some(label.0),
         Message::StateLocation { label, .. } => bulb.location = Some(label.0),
         Message::LightState {
@@ -156,7 +168,8 @@ fn handle_bulb_message(raw: RawMessage, bulb: &mut BulbInfo) -> Result<(), lifx_
             label,
             ..
         } => {
-            if let Some(Color::Single(ref mut d)) = bulb.color {
+            // TODO What to do on unknown
+            if let Color::Single(ref mut d) = bulb.color {
                 d.replace(color);
 
                 bulb.power_level = Some(power);
@@ -195,9 +208,12 @@ async fn refresh_loop(bulbs: Arc<RwLock<HashMap<u64, BulbInfo>>>, socket: Arc<Ud
                             .expect("Building a message should not fail")
                     };
 
+                    // TODO Maybe put that into a bulb method and generate them based on what we know
+                    // thinking about color here.
                     vec![
                         mk_message(Message::GetLabel),
                         mk_message(Message::GetLocation),
+                        mk_message(Message::GetVersion),
                         mk_message(Message::GetPower),
                         mk_message(Message::LightGet),
                     ]
@@ -232,7 +248,7 @@ struct BulbInfo {
     name: Option<String>,
     location: Option<String>,
     power_level: Option<PowerLevel>,
-    color: Option<Color>,
+    color: Color,
 }
 
 impl BulbInfo {
@@ -245,7 +261,7 @@ impl BulbInfo {
             name: None,
             location: None,
             power_level: None,
-            color: None,
+            color: Color::Unknown,
         }
     }
 
@@ -258,6 +274,6 @@ impl BulbInfo {
 #[derive(Debug)]
 enum Color {
     Unknown,
-    Single(Option<HSBK>),
-    Multi(Option<Vec<Option<HSBK>>>),
+    Single(Option<HSBK>),             // Regular bulb
+    Multi(Option<Vec<Option<HSBK>>>), // strip, beam and candles
 }
