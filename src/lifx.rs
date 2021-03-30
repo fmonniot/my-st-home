@@ -138,7 +138,10 @@ async fn network_receive(
 fn handle_bulb_message(raw: RawMessage, bulb: &mut BulbInfo) -> Result<(), lifx_core::Error> {
     let msg = Message::from_raw(&raw)?;
 
-    debug!("Handling message from bulb. message={:?}; bulb={:?}", msg, bulb);
+    debug!(
+        "Handling message from bulb. message={:?}; bulb={:?}",
+        msg, bulb
+    );
     match msg {
         Message::StateService { port, service } => {
             if port != bulb.addr.port() as u32 {
@@ -180,7 +183,6 @@ async fn refresh_loop(bulbs: Arc<RwLock<HashMap<u64, BulbInfo>>>, socket: Arc<Ud
 
             b.values()
                 .flat_map(|bulb| {
-
                     let mk_message = |msg| {
                         let options = BuildOptions {
                             target: Some(bulb.target),
@@ -188,8 +190,9 @@ async fn refresh_loop(bulbs: Arc<RwLock<HashMap<u64, BulbInfo>>>, socket: Arc<Ud
                             source: bulb.source,
                             ..Default::default()
                         };
-                        
-                        RawMessage::build(&options, msg).expect("Building a message should not fail")
+
+                        RawMessage::build(&options, msg)
+                            .expect("Building a message should not fail")
                     };
 
                     vec![
@@ -205,14 +208,19 @@ async fn refresh_loop(bulbs: Arc<RwLock<HashMap<u64, BulbInfo>>>, socket: Arc<Ud
         };
 
         for (message, addr) in messages {
-            match socket.send_to(&message.pack().expect("message can be packed"), addr).await {
+            match socket
+                .send_to(&message.pack().expect("message can be packed"), addr)
+                .await
+            {
                 Ok(_) => (),
-                Err(error) => error!("Couldn't send message to lifx bulb. message={:?}; addr={}; error={:?}", message, addr, error),
+                Err(error) => error!(
+                    "Couldn't send message to lifx bulb. message={:?}; addr={}; error={:?}",
+                    message, addr, error
+                ),
             }
         }
     }
 }
-
 
 #[derive(Debug)]
 struct BulbInfo {
