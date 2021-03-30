@@ -13,11 +13,13 @@ use mqtt::{
     control::variable_header::{ConnectReturnCode, PacketIdentifier},
     packet::suback::SubscribeReturnCode,
     packet::VariablePacket,
-    QualityOfService, TopicFilter,
+    TopicFilter,
 };
 
+pub use mqtt::QualityOfService;
+
 #[derive(Clone, Debug)]
-struct SubMessage {
+pub struct SubMessage {
     pub topic_name: String,
     pub payload: Vec<u8>,
     pub qos: QualityOfService,
@@ -28,6 +30,15 @@ pub struct Publish {
     topic: String,
     payload: Vec<u8>,
     qos: QualityOfService,
+}
+
+impl Publish {
+    pub fn new<S: Into<String>>(topic: S, payload: Vec<u8>, qos: QualityOfService) -> Publish {
+        Publish {
+            topic: topic.into(),
+            payload, qos
+        }
+    }
 }
 
 //stubs
@@ -207,7 +218,7 @@ impl MqttClient {
     /// recommend to create one Stream before creating the actual subscriptions.
     // TODO Probably implement our own enum error here. We may want to include more
     // cases (disconnected for example. not sure tbh).
-    fn subscriptions(&self) -> impl Stream<Item = Result<SubMessage, BroadcastStreamRecvError>> {
+    pub fn subscriptions(&self) -> impl Stream<Item = Result<SubMessage, BroadcastStreamRecvError>> {
         let receiver = self.messages.subscribe();
 
         let a = tokio_stream::wrappers::BroadcastStream::new(self.messages.subscribe());
@@ -252,11 +263,14 @@ impl MqttClient {
         unimplemented!()
     }
 
-    pub async fn subscribe<I: Iterator<Item = (TopicFilter, QualityOfService)>>(
+    pub async fn subscribe<S: Into<String>>(
         &self,
-        topics: I,
-    ) -> Vec<SubscribeReturnCode> {
-        unimplemented!()
+        subs: Vec<(S, QualityOfService)>,
+    ) -> Result<Vec<SubscribeReturnCode>, ClientError> {
+        match &self.run_loop {
+            Some(h) => Ok(h.subscribe(subs).await?),
+            None => Err(ClientError::NotConnected),
+        }
     }
 
     pub async fn publish(&self, message: Publish) -> Result<(), ClientError> {

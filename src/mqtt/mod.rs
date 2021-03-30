@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use std::time::SystemTime;
 use tokio::time::sleep;
+use log::{debug, info};
 
 use super::Configuration;
 
@@ -18,7 +19,7 @@ pub(super) async fn spawn(cfg: &Configuration) -> Result<(), Box<dyn std::error:
         return Ok(()); // TODO return an error
     }
 
-    println!("Configuration: {:#?}\n", cfg);
+    debug!("Configuration: {:#?}\n", cfg);
 
     // Key deserialization experimentation (could probably go into configuration)
     let public_key_bytes = base64::decode(&cfg.device_info.public_key)?;
@@ -40,7 +41,7 @@ pub(super) async fn spawn(cfg: &Configuration) -> Result<(), Box<dyn std::error:
     //
 
     //.server_uri("ssl://mqtt-regional-useast1.api.smartthings.com:8883")
-    let mut client = client::MqttClient::builder("mqtt-regional-useast1.api.smartthings.com", 8883)
+    let mut mqtt_client = client::MqttClient::builder("mqtt-regional-useast1.api.smartthings.com", 8883)
         .set_client_id("mqtt-console-rs")
         .set_password(jwt)
         .set_keep_alive(client::KeepAlive::Enabled { secs: 60 })
@@ -48,47 +49,44 @@ pub(super) async fn spawn(cfg: &Configuration) -> Result<(), Box<dyn std::error:
         .build();
 
     // connect
-    let code = client.connect().await;
-    println!("client.connect() returned {:?}", code);
+    let code = mqtt_client.connect().await;
+    debug!("client.connect() returned {:?}", code);
 
-    /*
-    let mut messages = mqtt_client.get_stream(25);
 
-    println!("connected");
+    let mut messages = mqtt_client.subscriptions();
+
+    info!("connected");
 
     // subscribe
     let topics = [
-        format!("/v1/commands/{}", &cfg.stcli.device_id),
-        format!("/v1/notifications/{}", &cfg.stcli.device_id),
+        (format!("/v1/commands/{}", &cfg.stcli.device_id), client::QualityOfService::Level0),
+        (format!("/v1/notifications/{}", &cfg.stcli.device_id), client::QualityOfService::Level0),
     ];
-    let topics_qos = [1, 1];
-    mqtt_client.subscribe_many(&topics, &topics_qos).await?;
+    mqtt_client.subscribe(topics.to_vec()).await?;
 
-    println!("subscribed");
+    info!("subscribed");
 
     tokio::spawn(async move {
         while let Some(msg_opt) = messages.next().await {
-            if let Some(msg) = msg_opt {
-                let topic = msg.topic();
-                let _payload = msg.payload();
+            if let Ok(msg) = msg_opt {
+                let topic = msg.topic_name;
+                let payload = msg.payload;
 
-                println!("Received message on {}: {}", topic, msg.payload_str());
+                let msg = String::from_utf8(payload);
+
+                debug!("Received message on {}: {:?}", topic, msg);
             } else {
                 // A "None" means we were disconnected.
             }
         }
     });
 
-    //let topic = format!("/v1/deviceEvents/{}", cfg.stcli.device_id);
-    //let msg = mqtt::Message::new(topic, "{}", mqtt::QOS_1);
-    //mqtt_client.publish(msg).await?;
+    let topic = format!("/v1/deviceEvents/{}", cfg.stcli.device_id);
+    let msg = client::Publish::new(topic, "{}".as_bytes().to_vec(), client::QualityOfService::Level1);
+    mqtt_client.publish(msg).await?;
 
-    sleep(Duration::from_millis(30_000)).await;
-    println!("Sleep expired, closing");
+    //mqtt_client.disconnect().await?;
 
-    mqtt_client.disconnect(None).await?;
-
-     */
     Ok(())
 }
 
