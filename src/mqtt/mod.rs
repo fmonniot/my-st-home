@@ -2,9 +2,7 @@ use ed25519_dalek::{Keypair, PublicKey, SecretKey, Signer};
 use futures::stream::StreamExt;
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 use std::time::SystemTime;
-use tokio::time::sleep;
 
 use super::Configuration;
 

@@ -1,3 +1,8 @@
+// Inspiration:
+// - https://github.com/fluffysquirrels/mqtt-async-client-rs (MIT)
+// - https://github.com/bytebeamio/rumqtt (Apache 2.0)
+// - https://github.com/zonyitoo/mqtt-rs (MIT)
+
 #![allow(warnings, unused, dead_code)] // Still working on this module :)
 
 use core::num::NonZeroU16;

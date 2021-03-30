@@ -20,7 +20,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     // Create our background processors (lifx, screen, mqtt, ST events)
-    let stdk = mqtt::spawn(&cfg).await?;
+    let _stdk = if false {
+        mqtt::spawn(&cfg).await?
+    } else {
+    };
     let (screen_join_handle, screen_handle) = screen::spawn();
     let lifx = lifx::spawn().await?;
 
