@@ -266,9 +266,11 @@ mod runloop {
         control::variable_header::{protocol_level, ConnectReturnCode, PacketIdentifier},
         control::ProtocolLevel,
         packet::{
-            publish::QoSWithPacketIdentifier, ConnackPacket, ConnectPacket, MqttCodec,
-            PubackPacket, PublishPacket, VariablePacket, VariablePacketError, SubscribePacket, SubackPacket
+            publish::QoSWithPacketIdentifier, suback::SubscribeReturnCode, ConnackPacket,
+            ConnectPacket, MqttCodec, PubackPacket, PublishPacket, SubackPacket, SubscribePacket,
+            VariablePacket, VariablePacketError,
         },
+        topic_filter::TopicFilter,
         QualityOfService, TopicName,
     };
     use std::{collections::BTreeMap, sync::Arc};
@@ -283,14 +285,17 @@ mod runloop {
 
     #[derive(Debug, thiserror::Error)]
     pub(crate) enum HandleError {
-        #[error("Failed to send mqtt write request to the run loop: {0}")]
-        WriterRequest(#[from] mpsc::error::SendError<WriterRequest>),
+        #[error("Failed to send mqtt write command to the run loop: {0}")]
+        WriterCommand(#[from] mpsc::error::SendError<WriterCommand>),
 
         #[error("Failed to receive response from the run loop: {0}")]
         WriterResponse(#[from] oneshot::error::RecvError),
 
         #[error("Invalid topic name passed: {0}")]
         InvalidTopicName(#[from] protocol::topic_name::TopicNameError),
+
+        #[error("Invalid topic filter passed: {0}")]
+        InvalidTopicFilter(#[from] protocol::topic_filter::TopicFilterError),
     }
 
     pub(super) struct Handle {
@@ -298,7 +303,7 @@ mod runloop {
         shutdown: broadcast::Sender<()>,
 
         /// Send packet to be written
-        write_tx: mpsc::Sender<WriterRequest>,
+        write_tx: mpsc::Sender<WriterCommand>,
 
         /// Queue to create new receiver of publish messages received from the server
         messages: broadcast::Sender<PublishPacket>,
@@ -308,14 +313,11 @@ mod runloop {
         pub(crate) async fn publish(&self, publish: super::Publish) -> Result<(), HandleError> {
             let topic_name = TopicName::new(publish.topic)?;
             let qos = publish.qos;
-            let command = WriterCommand::Publish(topic_name, qos, publish.payload);
             let (sender, receiver) = oneshot::channel();
 
-            let req = WriterRequest {
-                result: Some(sender),
-                command,
-            };
-            self.write_tx.send(req).await?;
+            // TODO Sender is conditional to the qos level used
+            let command = WriterCommand::Publish(topic_name, qos, publish.payload, Some(sender));
+            self.write_tx.send(command).await?;
 
             let res = receiver.await?;
             // TODO Handle this case when I know what error to look for
@@ -326,13 +328,36 @@ mod runloop {
 
             Ok(a?)
         }
+
+        pub(crate) async fn subscribe<S: Into<String>>(
+            &self,
+            subs: Vec<(S, QualityOfService)>,
+        ) -> Result<Vec<SubscribeReturnCode>, HandleError> {
+            let s: Result<Vec<_>, HandleError> = subs
+                .into_iter()
+                .map(|(s, qos)| {
+                    let tf = TopicFilter::new(s)?;
+
+                    Ok((tf, qos))
+                })
+                .collect();
+
+            let (sender, receiver) = oneshot::channel();
+
+            let command = WriterCommand::Subscribe(s?, sender);
+            self.write_tx.send(command).await?;
+
+            Ok(receiver.await?)
+        }
     }
 
     struct ConnectionState {
         /// Tasks that await a confirmation from the server. It maps a pid to the callback.
         ///
         /// _Note: we use u16 as a key because PacketIdentifier doesn't implemente Ord._
-        outstanding: BTreeMap<u16, oneshot::Sender<Result<(), ()>>>,
+        outstanding_pub: BTreeMap<u16, oneshot::Sender<Result<(), ()>>>,
+
+        outstanding_sub: BTreeMap<u16, oneshot::Sender<Vec<SubscribeReturnCode>>>,
 
         /// Keep record of the last used packet id. We will always increase it and wrap
         /// when reached u16 limit. We assume by that time, we will have freed the first
@@ -350,15 +375,17 @@ mod runloop {
     }
 
     #[derive(Debug)]
-    pub(crate) struct WriterRequest {
-        result: Option<oneshot::Sender<Result<(), ()>>>,
-        command: WriterCommand,
-    }
-
-    #[derive(Debug)]
     pub(crate) enum WriterCommand {
-        Publish(TopicName, QualityOfService, Vec<u8>),
-        Subscribe(),
+        Publish(
+            TopicName,
+            QualityOfService,
+            Vec<u8>,
+            Option<oneshot::Sender<Result<(), ()>>>,
+        ),
+        Subscribe(
+            Vec<(TopicFilter, QualityOfService)>,
+            oneshot::Sender<Vec<SubscribeReturnCode>>,
+        ),
         Unsubscribe(),
         Disconnect(),
     }
@@ -456,7 +483,8 @@ mod runloop {
         // connection state
 
         let state = Arc::new(RwLock::new(ConnectionState {
-            outstanding: BTreeMap::new(),
+            outstanding_pub: BTreeMap::new(),
+            outstanding_sub: BTreeMap::new(),
             last_pid: 0,
         }));
 
@@ -522,7 +550,7 @@ mod runloop {
                 Some(Ok(VariablePacket::PubackPacket(pkt))) => {
                     let channel = {
                         let mut state = state.write().await;
-                        state.outstanding.remove(&pkt.packet_identifier())
+                        state.outstanding_pub.remove(&pkt.packet_identifier())
                     };
 
                     match channel {
@@ -538,15 +566,12 @@ mod runloop {
                 Some(Ok(VariablePacket::SubackPacket(pkt))) => {
                     let channel = {
                         let mut state = state.write().await;
-                        state.outstanding.remove(&pkt.packet_identifier())
+                        state.outstanding_sub.remove(&pkt.packet_identifier())
                     };
-
-                    // TODO Send them back. Will require a different outstanding field.
-                    let subs = pkt.subscribes().to_owned();
 
                     match channel {
                         Some(channel) => channel
-                            .send(Ok(()))
+                            .send(pkt.subscribes().to_owned())
                             .expect("puback response callback failed"),
                         None => warn!(
                             "Received a packet identifier without an outstanding channel. pid={}",
@@ -566,7 +591,7 @@ mod runloop {
     // handle packet to the server
     async fn network_write<S: Sink<VariablePacket, Error = std::io::Error> + Unpin>(
         state: Arc<RwLock<ConnectionState>>,
-        commands: mpsc::Receiver<WriterRequest>,
+        commands: mpsc::Receiver<WriterCommand>,
         mut packet_sink: S,
         shutdown: broadcast::Receiver<()>,
     ) {
@@ -578,48 +603,55 @@ mod runloop {
 
         loop {
             match f.next().await {
-                Some(Either::Left(WriterRequest { result, command })) => {
-                    match command {
-                        WriterCommand::Publish(topic_name, qos, payload) => {
-                            // pub fn new<P: Into<Vec<u8>>>(topic_name: TopicName, qos: QoSWithPacketIdentifier, payload: P) -> PublishPacket
-                            let pkt = match (qos, result) {
-                                (QualityOfService::Level0, _) => {
-                                    // Just write the publish packet
-                                    PublishPacket::new(
-                                        topic_name,
-                                        QoSWithPacketIdentifier::Level0,
-                                        payload,
-                                    )
-                                }
-                                (QualityOfService::Level1, Some(response)) => {
-                                    // generate pid and register a puback callback
-                                    let pid = {
-                                        let mut s = state.write().await;
-                                        let pid = s.next_pid();
-                                        let existing = s.outstanding.insert(pid, response);
-                                        if (existing.is_some()) {
-                                            warn!("Well, we did rewrite an existing packet id :(. pid={}", pid)
-                                        }
+                Some(Either::Left(WriterCommand::Publish(topic_name, qos, payload, result))) => {
+                    // pub fn new<P: Into<Vec<u8>>>(topic_name: TopicName, qos: QoSWithPacketIdentifier, payload: P) -> PublishPacket
+                    let pkt = match (qos, result) {
+                        (QualityOfService::Level0, _) => {
+                            // Just write the publish packet
+                            PublishPacket::new(topic_name, QoSWithPacketIdentifier::Level0, payload)
+                        }
+                        (QualityOfService::Level1, Some(response)) => {
+                            // generate pid and register a puback callback
+                            let pid = {
+                                let mut s = state.write().await;
+                                let pid = s.next_pid();
+                                let existing = s.outstanding_pub.insert(pid, response);
+                                if (existing.is_some()) {
+                                    warn!(
+                                        "Well, we did rewrite an existing packet id :(. pid={}",
                                         pid
-                                    };
-
-                                    PublishPacket::new(
-                                        topic_name,
-                                        QoSWithPacketIdentifier::Level1(pid),
-                                        payload,
                                     )
                                 }
-                                _ => panic!("QoS2 or QoS1 without callback, aren't supported"),
+                                pid
                             };
-                            packet_sink.send(pkt.into()).await;
+
+                            PublishPacket::new(
+                                topic_name,
+                                QoSWithPacketIdentifier::Level1(pid),
+                                payload,
+                            )
                         }
-                        WriterCommand::Subscribe() => {
-                            // SubscribePacket { fn new(pkid: u16, subscribes: Vec<(TopicFilter, QualityOfService)>) -> SubscribePacket
-                        }
-                        WriterCommand::Unsubscribe() => {}
-                        WriterCommand::Disconnect() => {}
-                    }
+                        _ => panic!("QoS2 or QoS1 without callback, aren't supported"),
+                    };
+                    packet_sink.send(pkt.into()).await;
                 }
+                Some(Either::Left(WriterCommand::Subscribe(subscribes, callback))) => {
+                    // SubscribePacket { fn new(pkid: u16, subscribes: Vec<(TopicFilter, QualityOfService)>) -> SubscribePacket
+                    let pid = {
+                        let mut s = state.write().await;
+                        let pid = s.next_pid();
+                        let existing = s.outstanding_sub.insert(pid, callback);
+                        if (existing.is_some()) {
+                            warn!("Well, we did rewrite an existing packet id :(. pid={}", pid)
+                        }
+                        pid
+                    };
+
+                    let pkt = SubscribePacket::new(pid, subscribes);
+                    packet_sink.send(pkt.into()).await;
+                }
+                Some(Either::Left(WriterCommand::Unsubscribe())) => {}
+                Some(Either::Left(WriterCommand::Disconnect())) => {}
                 Some(Either::Right(e)) => {
                     if e.is_err() {
                         error!("shutdown receiver lagged behind, which should not happen as it's used as a deferred");
