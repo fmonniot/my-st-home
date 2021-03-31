@@ -84,7 +84,14 @@ fn screen_run_loop<SPI, SPIE, CS, BUSY, DC, RST>(
         .display_frame(&mut spi)
         .expect("display frame new graphics");
 
-    delay.delay_ms(2_000u16); // Wait for the screen to refresh, take between 2~5 seconds.
+    delay.delay_ms(5_000u16); // Wait for the screen to refresh, take between 2~5 seconds.
+
+    println!("Clear buffer after tests");
+    display.clear_buffer(Color::Black);
+    screen.update_frame(&mut spi, &display.buffer()).unwrap();
+    screen
+        .display_frame(&mut spi)
+        .expect("display frame new graphics");
 
     println!("Finished tests - going to sleep");
     screen.sleep(&mut spi).expect("screen goes to sleep");
