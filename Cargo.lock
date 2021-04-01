@@ -661,6 +661,7 @@ dependencies = [
  "lifx-core",
  "log",
  "mqtt-protocol",
+ "pid-lite",
  "reqwest",
  "rppal",
  "rustls",
@@ -753,6 +754,12 @@ name = "percent-encoding"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4fd5641d01c8f18a23da7b6fe29298ff4b55afcccdf78973b24cf3175fee32e"
+
+[[package]]
+name = "pid-lite"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8026cfc44362845edfed2c561441e5dfcc4f01fbbd41f727604ad8423c1302d"
 
 [[package]]
 name = "pin-project"

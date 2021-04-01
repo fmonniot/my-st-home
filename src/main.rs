@@ -61,37 +61,38 @@ mod logic {
     use log::{debug, warn};
     use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 
-    // manual config, should not be const but actual config :)
-    const MIN_LUX: f32 = 240.0;
-
     pub(super) async fn sensors<S>(mut sensors: S, lifx: LifxHandle)
     where
         S: Stream<Item = Result<SensorMessage, BroadcastStreamRecvError>> + Unpin,
     {
         debug!("Starting sensors run loop");
 
+        // TODO Needs to make that configurable without code change
+        let mut controller = pid_lite::Controller::new(80.0, 100.0, 0.01, 0.01);
+        let mut brightness_command: u16 = 1000;
+
+        // TODO Needs some form of better control loop (PI, hysteresis, other ?)
+        // The naive approach will just turn on/off the lamps whenever the brightness setting is too big
+        // instead of adjusting it.
         while let Some(message) = sensors.next().await {
             match message {
                 Ok(SensorMessage::Luminosity { lux, .. }) => {
+                    let correction = controller.update(lux as f64);
+                    let next_bright = brightness_command as f64 + correction;
+                    debug!("next_bright after correction: {}", next_bright);
 
-                    // It's bright enough already. Nothing to do.
-                    if lux >= MIN_LUX {
-                        continue;
-                    }
+                    let brightness = match next_bright.round() as i64 {
+                        n if n < 0 => 0,
+                        n if n <= std::u16::MAX as i64 => n as u16,
+                        _ => std::u16::MAX,
+                    };
 
-                    /*
-                        Need a table form lux reading to lifx's brightness level
-                        1% in the app gave:
-                        HSBK { hue: 7461, saturation: 0, brightness: 1966, kelvin: 3500 }
+                    // let brightness = lux_to_brightness(lux);
 
-                        100% in the app gave:
-                        HSBK { hue: 7461, saturation: 0, brightness: 65535, kelvin: 3500 }
-
-                        So HSBK.brightness is the only interesting part, and it goes from 0 to 65535 (16 bytes)
-                     */
-
-                     // TODO wait when it's dark enough that I can find the actual lux reading :)
-                    
+                    debug!("Setting brightness to {}", brightness);
+                    brightness_command = brightness;
+                    lifx.set_group_brightness("Living Room - Desk", brightness)
+                        .await;
                 }
                 Err(error) => {
                     warn!("Cannot pull sensor data. error={:?}", error);
@@ -100,5 +101,58 @@ mod logic {
         }
 
         debug!("Stopped sensors run loop");
+    }
+
+    fn lux_to_brightness(lux: f32) -> u16 {
+        /*
+
+        lux reading (night time):
+
+        Note: light incidence is really important. The lamp was at a ~45° compared to the sensor.
+        | LIFX 3500K brightness % | lux value |
+        | 1                       | 1.02      |
+        | 5                       | 1.5       |
+        | 10                      | 2.53      |
+        | 15                      | 3.56      |
+        | 20                      | 5.02      |
+        | 25                      | 6.68      |
+        | 30                      | 8.44      |
+        | 35                      | 12.23     | 16 when light is front facing (no incident)
+        | 40                      | 15.16     |
+        | 45                      | 18.23     |
+        | 50                      | 21.89     |
+        | 55                      | 25.88     |
+        | 60                      | 30.08     |
+        | 65                      | 35.59     |
+        | 70                      | 40.33     |
+        | 75                      | 46.76     |
+        | 80                      | 53.05     |
+        | 85                      | 58.90     |
+        | 90                      | 66.32     |
+        | 95                      | 74.21     |
+        | 100                     | 81.13     | 132 without incidence, 70lux at 3000K
+        */
+
+        let current_lux = lux as f64;
+        let target_lux: f64 = 80.0; // target is around 80 lux;
+
+        let diff: f64 = target_lux - current_lux;
+
+        if diff <= 0.0 {
+            // current is already above the target, turn off the light
+            return 0;
+        }
+
+        // See "docs/Lux curve fitting.ipynb" for details about this function
+        let a = 2.6194180654551654e-004;
+        let b = -4.3180054329256472e-002;
+        let c = 2.9900609021127589e+000;
+        let d = 3.3886006980307526e+000;
+
+        // a*x^3 + b*x^2 + c*x + d
+        let percent = a * diff.powf(3.0) + b * diff.powf(2.0) + c * diff + d;
+
+        // The last cast is safe assume percent is bounded between 0.0 and 100.0
+        ((std::u16::MAX as f64) * (percent / 100.0)) as u16
     }
 }

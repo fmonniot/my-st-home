@@ -1,4 +1,4 @@
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use std::{net::SocketAddr, sync::Arc};
@@ -7,7 +7,110 @@ use tokio::{net::UdpSocket, sync::RwLock, task::JoinHandle};
 use lifx_core::{get_product_info, BuildOptions, Message, PowerLevel, RawMessage, HSBK};
 
 // API with the underlying lifx machinery
-pub struct LifxHandle {}
+pub struct LifxHandle {
+    socket: Arc<UdpSocket>,
+    bulbs: Arc<RwLock<HashMap<u64, BulbInfo>>>,
+}
+
+impl LifxHandle {
+
+    /*
+
+        LIFX level:
+        1% in the app gave:
+        HSBK { hue: 7461, saturation: 0, brightness: 1966, kelvin: 3500 }
+
+        100% in the app gave:
+        HSBK { hue: 7461, saturation: 0, brightness: 65535, kelvin: 3500 }
+
+        So HSBK.brightness is the only interesting part, and it goes from 0 to 65535 (16 bytes)
+    */
+    pub async fn set_group_brightness<S: Into<String>>(&self, group: S, brightness: u16) {
+        let group = group.into();
+        let colors = self.colors_for_group(&group).await;
+        debug!("set_group_brightness. group={}, colors={:?}", group, colors);
+
+        for (target, source, mut color, power_level, addr) in colors {
+            let options = BuildOptions {
+                target: Some(target),
+                res_required: true,
+                source: source,
+                ..Default::default()
+            };
+
+            color.brightness = brightness;
+
+            let raw = RawMessage::build(
+                &options,
+                Message::LightSetColor {
+                    reserved: 0,
+                    color,
+                    duration: 5, // ms ?
+                },
+            )
+            .expect("Building a message should not fail");
+
+            debug!(
+                "Sending brightness change. brightness={:?}, addr={:?}",
+                brightness, addr
+            );
+            self.send_raw(raw, addr).await;
+
+            // Brightness needs to be at least 1000 otherwise we turn on/off the bulb
+            let turn = power_level.and_then(|p| match p {
+                PowerLevel::Enabled if brightness <= 1000 => Some(PowerLevel::Standby),
+                PowerLevel::Standby if brightness >= 1000 => Some(PowerLevel::Enabled),
+                _ => None,
+            });
+
+            if let Some(level) = turn {
+                let raw = RawMessage::build(&options, Message::SetPower { level })
+                    .expect("Building a message should not fail");
+
+                debug!(
+                    "Sending power level change. level={:?}, addr={:?}",
+                    level, addr
+                );
+                self.send_raw(raw, addr).await;
+            }
+        }
+    }
+
+    async fn colors_for_group(
+        &self,
+        group: &String,
+    ) -> Vec<(u64, u32, HSBK, Option<PowerLevel>, SocketAddr)> {
+        let bulbs = self.bulbs.read().await;
+
+        bulbs
+            .values()
+            .filter(|b| match &b.group {
+                Some(b) => b == group,
+                None => false,
+            })
+            .filter_map(|bulb| match bulb.color {
+                Color::Single(Some(hsbk)) => {
+                    Some((bulb.target, bulb.source, hsbk, bulb.power_level, bulb.addr))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    async fn send_raw(&self, raw: RawMessage, addr: SocketAddr) {
+        match self
+            .socket
+            .send_to(&raw.pack().expect("message can be packed"), addr)
+            .await
+        {
+            Ok(_) => (),
+            Err(error) => error!(
+                "Couldn't send message to lifx bulb. message={:?}; addr={}; error={:?}",
+                raw, addr, error
+            ),
+        }
+    }
+}
 
 // Represent the running Lifx process
 pub struct LifxTask {
@@ -26,7 +129,10 @@ pub struct LifxTask {
 
 impl LifxTask {
     pub fn handle(&self) -> LifxHandle {
-        LifxHandle {}
+        let socket = self.socket.clone();
+        let bulbs = self.bulbs.clone();
+
+        LifxHandle { socket, bulbs }
     }
 
     // TODO Might be better to implement the trait ourselves
@@ -138,9 +244,10 @@ async fn network_receive(
 fn handle_bulb_message(raw: RawMessage, bulb: &mut BulbInfo) -> Result<(), lifx_core::Error> {
     let msg = Message::from_raw(&raw)?;
 
-    debug!(
+    trace!(
         "Handling message from bulb. message={:?}; bulb={:?}",
-        msg, bulb
+        msg,
+        bulb
     );
     match msg {
         Message::StateService { port, service } => {
@@ -162,6 +269,7 @@ fn handle_bulb_message(raw: RawMessage, bulb: &mut BulbInfo) -> Result<(), lifx_
         }
         Message::StateLabel { label } => bulb.name = Some(label.0),
         Message::StateLocation { label, .. } => bulb.location = Some(label.0),
+        Message::StateGroup { label, .. } => bulb.group = Some(label.0),
         Message::LightState {
             color,
             power,
@@ -213,6 +321,7 @@ async fn refresh_loop(bulbs: Arc<RwLock<HashMap<u64, BulbInfo>>>, socket: Arc<Ud
                     vec![
                         mk_message(Message::GetLabel),
                         mk_message(Message::GetLocation),
+                        mk_message(Message::GetGroup),
                         mk_message(Message::GetVersion),
                         mk_message(Message::GetPower),
                         mk_message(Message::LightGet),
@@ -247,6 +356,7 @@ struct BulbInfo {
     // Option because we need some network interaction before having this information
     name: Option<String>,
     location: Option<String>,
+    group: Option<String>,
     power_level: Option<PowerLevel>,
     color: Color,
 }
@@ -260,6 +370,7 @@ impl BulbInfo {
             addr,
             name: None,
             location: None,
+            group: None,
             power_level: None,
             color: Color::Unknown,
         }

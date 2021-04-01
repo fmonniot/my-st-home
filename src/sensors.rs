@@ -69,7 +69,8 @@ mod runloop {
 
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                // 9 seconds is because the lifx bulb goes to sleep every 10 seconds
+                tokio::time::sleep(std::time::Duration::from_secs(9)).await;
 
                 let visible = lux_dev.visible().unwrap();
                 let infrared = lux_dev.infrared().unwrap();
