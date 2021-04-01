@@ -8,19 +8,19 @@ Provides some features for my smart home:
 
 Where we are and where we needs to go
 
-[x] MTTQ Connection to ST
-[x] Luminosity sensor measurements
-[x] Lifx local control
-[x] Control loop between luminosity and bulbs brightness
-[x] Screen setup
-[ ] Display relevant information on screen
-[ ] Control on/off/brightness target through ST (MQTT connection, or hub-connected for latency (if doable))
-[ ] Simplify configuration (hard coded to cfg file, cfg file to web ui)
-[ ] Documentation
-   [ ] Setting up the hardware
-   [ ] Prep the raspberry
-   [ ] Code doc & maybe clean up if needed
-[ ] Make the tsl_2591 module depending on embedded-hal only and publish to crates.io
+- [x] MTTQ Connection to ST
+- [x] Luminosity sensor measurements
+- [x] Lifx local control
+- [x] Control loop between luminosity and bulbs brightness
+- [x] Screen setup
+- [ ] Display relevant information on screen
+- [ ] Control on/off/brightness target through ST (MQTT connection, or hub-connected for latency (if doable))
+- [ ] Simplify configuration (hard coded to cfg file, cfg file to web ui)
+- [ ] Documentation
+  - [ ] Setting up the hardware
+  - [ ] Prep the raspberry
+  - [ ] Code doc & maybe clean up if needed
+- [ ] Make the tsl_2591 module depending on embedded-hal only and publish to crates.io
 
 
 # Cross compiling
