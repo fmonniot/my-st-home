@@ -1,24 +1,31 @@
-# mqtt-console
+# my-st-home
 
-## MQTT logs
+Provides some features for my smart home:
+- light control for constant brightness
+- eink screen for an at a glance view of everything
 
-A number of environment variables control runtime tracing of the Paho C library.
+## Tasks
 
-Tracing is switched on using `MQTT_C_CLIENT_TRACE` (a value of `ON` traces to stdout, any other value should specify a file to trace to).
+Where we are and where we needs to go
 
-The verbosity of the output is controlled using the `MQTT_C_CLIENT_TRACE_LEVEL` environment variable - valid values are `ERROR`, `PROTOCOL`, `MINIMUM`, `MEDIUM` and `MAXIMUM` (from least to most verbose).
-
-The variable `MQTT_C_CLIENT_TRACE_MAX_LINES` limits the number of lines of trace that are output.
-
-```
-export MQTT_C_CLIENT_TRACE=ON
-export MQTT_C_CLIENT_TRACE_LEVEL=PROTOCOL
-```
+[x] MTTQ Connection to ST
+[x] Luminosity sensor measurements
+[x] Lifx local control
+[x] Control loop between luminosity and bulbs brightness
+[x] Screen setup
+[ ] Display relevant information on screen
+[ ] Control on/off/brightness target through ST (MQTT connection, or hub-connected for latency (if doable))
+[ ] Simplify configuration (hard coded to cfg file, cfg file to web ui)
+[ ] Documentation
+   [ ] Setting up the hardware
+   [ ] Prep the raspberry
+   [ ] Code doc & maybe clean up if needed
+[ ] Make the tsl_2591 module depending on embedded-hal only and publish to crates.io
 
 
 # Cross compiling
 
-_Note: This is for compiling to the raspberry pi. Depending on your device, the target may be different._
+_Note: This is for targeting the raspberry pi. Depending on your device, the target may be different._
 
 
 We use [cross](https://github.com/rust-embedded/cross/pull/522) to simplify the setup.
