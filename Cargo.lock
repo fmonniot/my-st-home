@@ -678,8 +678,9 @@ dependencies = [
 
 [[package]]
 name = "mqtt-protocol"
-version = "0.10.0"
-source = "git+https://github.com/zonyitoo/mqtt-rs#ea30ace9774a272dd2b788aa38f7a3ccb5007a67"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28e75553120607736d0a248f483fb0682e0279bb9a6f30a7c76c56a9a6ac9ade"
 dependencies = [
  "byteorder",
  "bytes",
@@ -1349,6 +1350,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
 dependencies = [
  "getrandom 0.2.2",
+ "serde",
 ]
 
 [[package]]
