@@ -14,13 +14,22 @@ Where we are and where we needs to go
 - [x] Control loop between luminosity and bulbs brightness
 - [x] Screen setup
 - [ ] Display relevant information on screen
-- [ ] Control on/off/brightness target through ST (MQTT connection, or hub-connected for latency (if doable))
-- [ ] Simplify configuration (hard coded to cfg file, cfg file to web ui)
+  - [ ] Can start with project name, current lux reading, lux target, and brightness level
+  - [ ] Then I can think of better UI with other features (weather, calendar, …)
+  - [ ] Might need some basic layouting for the latter. Not sure how hardcoding every dimension will work.
+- [x] Control on/off/brightness target through ST (MQTT connection, latency is around a second)
+- [ ] Simplify configuration 
+  - [ ] hard coded to cfg file
+  - [ ] cfg file to web ui)
 - [ ] Documentation
   - [ ] Setting up the hardware
   - [ ] Prep the raspberry
   - [ ] Code doc & maybe clean up if needed
 - [ ] Make the tsl_2591 module depending on embedded-hal only and publish to crates.io
+- [ ] Think on a method to configure the control loop by the end user
+  - [ ] Might wait until I get my 3D printer, we'll see
+  - [ ] Do some reading on PID (auto-) configuration
+- [ ] Maybe temperature and PG&E integration ?
 
 
 # Cross compiling
