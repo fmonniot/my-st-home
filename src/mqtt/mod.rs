@@ -73,12 +73,22 @@ pub(super) async fn spawn(cfg: &Configuration) -> Result<(), Box<dyn std::error:
     tokio::spawn(async move {
         while let Some(msg_opt) = messages.next().await {
             if let Ok(msg) = msg_opt {
-                let topic = msg.topic_name;
-                let payload = msg.payload;
+                // Not sure why we got trailing bytes, but let's remove them as a band aid
+                let p = trim(&msg.payload);
 
-                let msg = String::from_utf8(payload);
+                match Topic::from_topic_name(&msg.topic_name) {
+                    Topic::Commands => {
+                        let r = serde_json::from_slice::<Commands>(&p);
+                        debug!("Received command: {:?}", r);
+                    }
+                    Topic::Notifications => {
+                        let msg = String::from_utf8(p.to_vec());
 
-                debug!("Received message on {}: {:?}", topic, msg);
+                        debug!("Received notification: {:?}", msg);
+                    }
+                }
+                
+
             } else {
                 // A "None" means we were disconnected.
             }
@@ -96,6 +106,44 @@ pub(super) async fn spawn(cfg: &Configuration) -> Result<(), Box<dyn std::error:
     //mqtt_client.disconnect().await?;
 
     Ok(())
+}
+
+enum Topic {
+    Notifications,
+    Commands,
+}
+
+impl Topic {
+    fn from_topic_name(name: &str) -> Topic {
+        if name.starts_with("/v1/commands") {
+            Topic::Commands
+        } else if name.starts_with("/v1/notifications") {
+            Topic::Notifications 
+        } else {
+            panic!("Unknown topic {}", name)
+        }
+    }
+}
+
+// Remove leading and trailing 0 byte
+fn trim(bytes: &[u8]) -> &[u8] {
+    fn is_zero(c: &u8) -> bool {
+        *c == 0
+    }
+
+    fn is_not_zero(c: &u8) -> bool {
+        !is_zero(c)
+    }
+
+    if let Some(first) = bytes.iter().position(is_not_zero) {
+        if let Some(last) = bytes.iter().rposition(is_not_zero) {
+            &bytes[first..last + 1]
+        } else {
+            unreachable!();
+        }
+    } else {
+        &[]
+    }
 }
 
 // JWT (custom implementation for now. TODO see if we can use a standard crate)
@@ -161,4 +209,72 @@ impl Body {
 
         Body { iat, jti, mn_id }
     }
+}
+
+// ST models
+use uuid::Uuid;
+use serde_json::Value;
+
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct DeviceEvents {
+    // deviceEvents
+    device_events: Vec<DeviceEvent>
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct DeviceEvent {
+    component: String,
+    capability: String,
+    attribute: String,
+    value: Value,
+    unit: Option<String>,
+    data: Option<Value>,
+    command_id: Option<Uuid>,
+    visibility: Option<EventVisibility>,
+    provider_data: Option<EventProviderData>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct EventVisibility {
+    displayed: bool,
+    non_archivable: bool,
+    ephemeral: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct EventProviderData {
+    timestamp: Option<u64>,
+    sequence_number: Option<u64>,
+    event_id: Option<String>,
+    state_change: Option<EventStateChange>,
+    raw_data: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+enum EventStateChange {
+    Y,
+    N,
+    Unknown
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct Commands {
+    commands: Vec<Command>
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct Command {
+    id: Uuid,
+    component: String,
+    capability: String,
+    command: String,
+    arguments: Vec<Value>
 }
