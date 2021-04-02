@@ -1,12 +1,52 @@
-use ed25519_dalek::{Keypair, PublicKey, SecretKey, Signer};
-use futures::stream::StreamExt;
+use futures::stream::{Stream, StreamExt};
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
-use std::time::SystemTime;
+use serde_json::Value;
+use tokio::{sync::broadcast, task::JoinHandle};
+use uuid::Uuid;
 
 use super::Configuration;
 
 mod client;
+mod smartthings;
+
+// We need to keep the sender to be able to create new receiver at will
+struct STask {
+    device_id: String,
+    client: client::MqttClient,
+    command_channel: broadcast::Sender<Command>,
+    notification_channel: broadcast::Sender<()>,
+    subs_handle: JoinHandle<()>,
+}
+
+impl STask {
+    // TODO Maybe a Vec<DeviceEvent> version ?
+    // TODO Return Result
+    pub async fn send_event(&self, event: DeviceEvent) {
+        let payload = serde_json::to_vec(&DeviceEvents::single(event)).unwrap();
+        let topic = format!("/v1/deviceEvents/{}", self.device_id);
+        let msg = client::Publish::new(
+            topic,
+            payload,
+            client::QualityOfService::Level1, // TODO Make that configurable
+        );
+        self.client.publish(msg).await.unwrap();
+    }
+
+    pub fn commands(
+        &self,
+    ) -> impl Stream<Item = Result<Command, tokio_stream::wrappers::errors::BroadcastStreamRecvError>>
+    {
+        tokio_stream::wrappers::BroadcastStream::new(self.command_channel.subscribe())
+    }
+
+    pub fn notifications(
+        &self,
+    ) -> impl Stream<Item = Result<(), tokio_stream::wrappers::errors::BroadcastStreamRecvError>>
+    {
+        tokio_stream::wrappers::BroadcastStream::new(self.notification_channel.subscribe())
+    }
+}
 
 pub(super) async fn spawn(cfg: &Configuration) -> Result<(), Box<dyn std::error::Error>> {
     if cfg.onboarding.identity_type != "ED25519" {
@@ -18,21 +58,7 @@ pub(super) async fn spawn(cfg: &Configuration) -> Result<(), Box<dyn std::error:
     }
 
     debug!("Configuration: {:#?}\n", cfg);
-
-    // Key deserialization experimentation (could probably go into configuration)
-    let public_key_bytes = base64::decode(&cfg.device_info.public_key)?;
-    let private_key_bytes = base64::decode(&cfg.device_info.private_key)?;
-
-    let public_key: PublicKey = PublicKey::from_bytes(&public_key_bytes)?;
-    let secret_key: SecretKey = SecretKey::from_bytes(&private_key_bytes)?;
-    let keypair = Keypair {
-        public: public_key,
-        secret: secret_key,
-    };
-
-    let header = Header::with_serial(&cfg.device_info.serial_number);
-    let body = Body::generate(cfg.onboarding.mn_id.clone());
-    let jwt = generate_jwt(header, body, &keypair)?;
+    let jwt = smartthings::jwt::generate(&cfg)?;
 
     //
     // Hack something for MQTT and then try to find a good abstraction for other to use
@@ -70,7 +96,7 @@ pub(super) async fn spawn(cfg: &Configuration) -> Result<(), Box<dyn std::error:
 
     info!("subscribed");
 
-    tokio::spawn(async move {
+    let subs_handle = tokio::spawn(async move {
         while let Some(msg_opt) = messages.next().await {
             if let Ok(msg) = msg_opt {
                 // Not sure why we got trailing bytes, but let's remove them as a band aid
@@ -87,23 +113,11 @@ pub(super) async fn spawn(cfg: &Configuration) -> Result<(), Box<dyn std::error:
                         debug!("Received notification: {:?}", msg);
                     }
                 }
-                
-
             } else {
                 // A "None" means we were disconnected.
             }
         }
     });
-
-    let topic = format!("/v1/deviceEvents/{}", cfg.stcli.device_id);
-    let msg = client::Publish::new(
-        topic,
-        "{}".as_bytes().to_vec(),
-        client::QualityOfService::Level1,
-    );
-    mqtt_client.publish(msg).await?;
-
-    //mqtt_client.disconnect().await?;
 
     Ok(())
 }
@@ -118,7 +132,7 @@ impl Topic {
         if name.starts_with("/v1/commands") {
             Topic::Commands
         } else if name.starts_with("/v1/notifications") {
-            Topic::Notifications 
+            Topic::Notifications
         } else {
             panic!("Unknown topic {}", name)
         }
@@ -146,81 +160,20 @@ fn trim(bytes: &[u8]) -> &[u8] {
     }
 }
 
-// JWT (custom implementation for now. TODO see if we can use a standard crate)
-
-fn generate_jwt(
-    header: Header,
-    body: Body,
-    keypair: &Keypair,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let h = serde_json::to_vec(&header)?;
-    let b = serde_json::to_vec(&body)?;
-
-    let h2 = base64::encode(h);
-    let b2 = base64::encode(b);
-
-    let msg = format!("{}.{}", h2, b2);
-    let signature = keypair.try_sign(msg.as_bytes())?;
-
-    Ok(format!("{}.{}.{}", h2, b2, base64::encode(signature)))
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-struct Header {
-    alg: String,
-    kty: String,
-    crv: String,
-    typ: String,
-    ver: String,
-    kid: String,
-}
-
-impl Header {
-    fn with_serial(serial: &str) -> Header {
-        Header {
-            alg: "EdDSA".to_string(),
-            kty: "OKP".to_string(),
-            crv: "ed25519".to_string(),
-            typ: "JWT".to_string(),
-            ver: "0.0.1".to_string(),
-            kid: serial.to_string(),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-struct Body {
-    iat: String,
-    jti: String,
-    mn_id: String,
-}
-
-impl Body {
-    fn generate(mn_id: String) -> Body {
-        let jti = uuid::Uuid::new_v4().to_hyphenated().to_string();
-        let sys_time = SystemTime::now();
-        let iat = sys_time
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        let iat = format!("{}", iat);
-
-        Body { iat, jti, mn_id }
-    }
-}
-
 // ST models
-use uuid::Uuid;
-use serde_json::Value;
-
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct DeviceEvents {
-    // deviceEvents
-    device_events: Vec<DeviceEvent>
+    device_events: Vec<DeviceEvent>,
+}
+
+impl DeviceEvents {
+    fn single(event: DeviceEvent) -> DeviceEvents {
+        DeviceEvents {
+            device_events: vec![event],
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -260,21 +213,21 @@ struct EventProviderData {
 enum EventStateChange {
     Y,
     N,
-    Unknown
+    Unknown,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct Commands {
-    commands: Vec<Command>
+    commands: Vec<Command>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Command {
     id: Uuid,
     component: String,
     capability: String,
     command: String,
-    arguments: Vec<Value>
+    arguments: Vec<Value>,
 }
