@@ -24,10 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     // Create our background processors (lifx, screen, mqtt, ST events)
-    let _stdk = if false {
-        mqtt::spawn(&cfg).await?
-    } else {
-    };
+    let s_task = mqtt::spawn(&cfg).await?;
     let (screen_join_handle, screen_handle) = screen::spawn();
     let lifx = lifx::spawn().await?;
     let sensors = sensors::spawn();
@@ -43,6 +40,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::spawn(logic::sensors(sensors.messages(), lifx.handle()));
 
+    // TODO Spawn task which react to commands and update light state
+    // TODO Create new light state shared with logic::sensors to know when to stop updating
+
     // TODO Need something to trigger a stop of the various background processes
     // rust signal handling ?
 
@@ -50,6 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     sensors.join().await?;
     lifx.join_handle().await?;
     screen_join_handle.await?;
+    s_task.join().await?;
 
     Ok(())
 }

@@ -13,7 +13,6 @@ pub struct LifxHandle {
 }
 
 impl LifxHandle {
-
     /*
 
         LIFX level:

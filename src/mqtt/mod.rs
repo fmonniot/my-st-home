@@ -10,8 +10,8 @@ use super::Configuration;
 mod client;
 mod smartthings;
 
-// We need to keep the sender to be able to create new receiver at will
-struct STask {
+// We need to keep the broadcast::sender to be able to create new receiver at will
+pub struct STask {
     device_id: String,
     client: client::MqttClient,
     command_channel: broadcast::Sender<Command>,
@@ -46,15 +46,19 @@ impl STask {
     {
         tokio_stream::wrappers::BroadcastStream::new(self.notification_channel.subscribe())
     }
+
+    pub async fn join(self) -> Result<(), tokio::task::JoinError> {
+        self.subs_handle.await?;
+        Ok(())
+    }
 }
 
-pub(super) async fn spawn(cfg: &Configuration) -> Result<(), Box<dyn std::error::Error>> {
+pub(super) async fn spawn(cfg: &Configuration) -> Result<STask, Box<dyn std::error::Error>> {
     if cfg.onboarding.identity_type != "ED25519" {
-        println!(
+        panic!(
             "Only ED25519 keys are supported at the moment. {} passed",
             cfg.onboarding.identity_type
-        );
-        return Ok(()); // TODO return an error
+        ); // TODO return an error
     }
 
     debug!("Configuration: {:#?}\n", cfg);
@@ -96,6 +100,10 @@ pub(super) async fn spawn(cfg: &Configuration) -> Result<(), Box<dyn std::error:
 
     info!("subscribed");
 
+    let (command_channel, _) = broadcast::channel(5);
+    let (notification_channel, _) = broadcast::channel(5);
+    let command_sender = command_channel.clone();
+
     let subs_handle = tokio::spawn(async move {
         while let Some(msg_opt) = messages.next().await {
             if let Ok(msg) = msg_opt {
@@ -106,6 +114,10 @@ pub(super) async fn spawn(cfg: &Configuration) -> Result<(), Box<dyn std::error:
                     Topic::Commands => {
                         let r = serde_json::from_slice::<Commands>(&p);
                         debug!("Received command: {:?}", r);
+                        // TODO Handle error
+                        for command in r.unwrap().commands {
+                            command_sender.send(command).unwrap();
+                        }
                     }
                     Topic::Notifications => {
                         let msg = String::from_utf8(p.to_vec());
@@ -119,7 +131,13 @@ pub(super) async fn spawn(cfg: &Configuration) -> Result<(), Box<dyn std::error:
         }
     });
 
-    Ok(())
+    Ok(STask {
+        device_id: cfg.stcli.device_id.clone(),
+        client: mqtt_client,
+        command_channel,
+        notification_channel,
+        subs_handle,
+    })
 }
 
 enum Topic {
@@ -178,7 +196,7 @@ impl DeviceEvents {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-struct DeviceEvent {
+pub struct DeviceEvent {
     component: String,
     capability: String,
     attribute: String,
@@ -192,7 +210,7 @@ struct DeviceEvent {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-struct EventVisibility {
+pub struct EventVisibility {
     displayed: bool,
     non_archivable: bool,
     ephemeral: bool,
@@ -200,7 +218,7 @@ struct EventVisibility {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-struct EventProviderData {
+pub struct EventProviderData {
     timestamp: Option<u64>,
     sequence_number: Option<u64>,
     event_id: Option<String>,
@@ -210,7 +228,7 @@ struct EventProviderData {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-enum EventStateChange {
+pub enum EventStateChange {
     Y,
     N,
     Unknown,
@@ -224,7 +242,7 @@ struct Commands {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-struct Command {
+pub struct Command {
     id: Uuid,
     component: String,
     capability: String,
