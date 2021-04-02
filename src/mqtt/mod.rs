@@ -1,7 +1,8 @@
 use futures::stream::{Stream, StreamExt};
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
+use std::sync::Arc;
 use tokio::{sync::broadcast, task::JoinHandle};
 use uuid::Uuid;
 
@@ -13,15 +14,14 @@ mod smartthings;
 // We need to keep the broadcast::sender to be able to create new receiver at will
 pub struct STask {
     device_id: String,
-    client: client::MqttClient,
+    client: Arc<client::MqttClient>,
     command_channel: broadcast::Sender<Command>,
     notification_channel: broadcast::Sender<()>,
     subs_handle: JoinHandle<()>,
 }
 
 impl STask {
-    // TODO Maybe a Vec<DeviceEvent> version ?
-    // TODO Return Result
+
     pub async fn send_event(&self, event: DeviceEvent) {
         let payload = serde_json::to_vec(&DeviceEvents::single(event)).unwrap();
         let topic = format!("/v1/deviceEvents/{}", self.device_id);
@@ -33,6 +33,30 @@ impl STask {
         self.client.publish(msg).await.unwrap();
     }
 
+    pub async fn event_sink(&self) -> impl futures::Sink<DeviceEvent> {
+        let client = self.client.clone();
+        let id = self.device_id.clone();
+
+        futures::sink::unfold((), move |_, event: DeviceEvent| {
+            let client = client.clone();
+            let id = id.clone();
+            async move {
+                // TODO Handle errors somehow
+                let payload = serde_json::to_vec(&DeviceEvents::single(event)).unwrap();
+                let topic = format!("/v1/deviceEvents/{}", id);
+                let msg = client::Publish::new(
+                    topic.clone(),
+                    payload,
+                    client::QualityOfService::Level1, // TODO Make that configurable
+                );
+
+                debug!("Sending event to '{}'", topic);
+                client.clone().publish(msg).await.unwrap();
+                Ok::<_, futures::never::Never>(())
+            }
+        })
+    }
+
     pub fn commands(
         &self,
     ) -> impl Stream<Item = Result<Command, tokio_stream::wrappers::errors::BroadcastStreamRecvError>>
@@ -40,6 +64,7 @@ impl STask {
         tokio_stream::wrappers::BroadcastStream::new(self.command_channel.subscribe())
     }
 
+    #[allow(unused)]
     pub fn notifications(
         &self,
     ) -> impl Stream<Item = Result<(), tokio_stream::wrappers::errors::BroadcastStreamRecvError>>
@@ -133,7 +158,7 @@ pub(super) async fn spawn(cfg: &Configuration) -> Result<STask, Box<dyn std::err
 
     Ok(STask {
         device_id: cfg.stcli.device_id.clone(),
-        client: mqtt_client,
+        client: Arc::new(mqtt_client),
         command_channel,
         notification_channel,
         subs_handle,
@@ -208,6 +233,27 @@ pub struct DeviceEvent {
     provider_data: Option<EventProviderData>,
 }
 
+impl DeviceEvent {
+    pub fn simple_str(
+        component: &str,
+        capability: &str,
+        attribute: &str,
+        value: &str,
+    ) -> DeviceEvent {
+        DeviceEvent {
+            component: component.to_string(),
+            capability: capability.to_string(),
+            attribute: attribute.to_string(),
+            value: json!(value),
+            unit: None,
+            data: None,
+            command_id: None,
+            visibility: None,
+            provider_data: None,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct EventVisibility {
@@ -246,6 +292,6 @@ pub struct Command {
     id: Uuid,
     component: String,
     capability: String,
-    command: String,
+    pub command: String,
     arguments: Vec<Value>,
 }

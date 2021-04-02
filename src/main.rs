@@ -8,6 +8,9 @@ mod sensors;
 #[cfg(target_os = "linux")]
 mod tsl_2591;
 
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
 pub(crate) use configuration::Configuration;
 
 #[tokio::main]
@@ -29,19 +32,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lifx = lifx::spawn().await?;
     let sensors = sensors::spawn();
 
-    // Then create the handle to use in the business loop
-    let _lifx_handle = lifx.handle();
-
     // Dummy thing, to avoid unused warn until we have the real logic
     screen_handle.update(screen::ScreenMessage::UpdateLifxBulb {
         source: 0,
         power: true,
     })?;
 
-    tokio::spawn(logic::sensors(sensors.messages(), lifx.handle()));
+    // No state persistence for now
+    let light_state = Arc::new(RwLock::new(false));
+    // Notify the cloud in which state we are 
+    s_task.send_event(mqtt::DeviceEvent::simple_str(
+        "main",
+        "switch",
+        "switch",
+        "off",
+    )).await;
 
-    // TODO Spawn task which react to commands and update light state
-    // TODO Create new light state shared with logic::sensors to know when to stop updating
+    tokio::spawn(logic::adaptive_brightness(
+        sensors.messages(),
+        lifx.handle(),
+        light_state.clone(),
+    ));
+
+    let event_sink = s_task.event_sink().await;
+    tokio::spawn(logic::st_light_state(
+        s_task.commands(),
+        event_sink,
+        lifx.handle(),
+        light_state.clone(),
+    ));
 
     // TODO Need something to trigger a stop of the various background processes
     // rust signal handling ?
@@ -56,14 +75,68 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 mod logic {
-    use crate::lifx::LifxHandle;
-    use crate::sensors::SensorMessage;
-    use futures::{Stream, StreamExt};
+    use crate::{lifx::LifxHandle, mqtt::Command};
+    use crate::{mqtt::DeviceEvent, sensors::SensorMessage};
+    use futures::{Sink, SinkExt, Stream, StreamExt};
     use log::{debug, warn};
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
     use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 
-    pub(super) async fn sensors<S>(mut sensors: S, lifx: LifxHandle)
-    where
+    pub(super) async fn st_light_state<St, Si>(
+        mut commands: St,
+        events: Si,
+        lifx: LifxHandle,
+        light_state: Arc<RwLock<bool>>,
+    ) where
+        St: Stream<Item = Result<Command, BroadcastStreamRecvError>> + Unpin,
+        Si: Sink<DeviceEvent>,
+    {
+        let mut events = Box::pin(events);
+        while let Some(message) = commands.next().await {
+            match message {
+                Err(error) => {
+                    warn!("Cannot pull command. error={:?}", error);
+                }
+                Ok(command) => {
+                    // TODO Correctly handle different type of command
+                    let switch = &command.command == "on";
+
+                    let current = { *light_state.read().await };
+
+                    debug!("Received command '{}', current state is '{}'", switch, current);
+                    if switch != current {
+                        // Change light_state
+                        {
+                            let mut s = light_state.write().await;
+                            *s = switch;
+                        }
+
+                        let value = if switch { "on" } else { "off" };
+
+                        // Send device event
+                        debug!("Sending device event with value '{}'", value);
+                        events.send(DeviceEvent::simple_str(
+                            "main",
+                            "switch",
+                            "switch",
+                            value,
+                        )).await;
+
+                        // Change lifx power level
+                        // TODO Don't change the brightness setting, only power
+                        lifx.set_group_brightness("Living Room - Desk", 0).await;
+                    }
+                }
+            }
+        }
+    }
+
+    pub(super) async fn adaptive_brightness<S>(
+        mut sensors: S,
+        lifx: LifxHandle,
+        light_state: Arc<RwLock<bool>>,
+    ) where
         S: Stream<Item = Result<SensorMessage, BroadcastStreamRecvError>> + Unpin,
     {
         debug!("Starting sensors run loop");
@@ -72,10 +145,12 @@ mod logic {
         let mut controller = pid_lite::Controller::new(80.0, 100.0, 0.01, 0.01);
         let mut brightness_command: u16 = 1000;
 
-        // TODO Needs some form of better control loop (PI, hysteresis, other ?)
-        // The naive approach will just turn on/off the lamps whenever the brightness setting is too big
-        // instead of adjusting it.
         while let Some(message) = sensors.next().await {
+            if !*light_state.read().await {
+                debug!("light turned off, skipping sensor message");
+                continue;
+            }
+
             match message {
                 Ok(SensorMessage::Luminosity { lux, .. }) => {
                     let correction = controller.update(lux as f64);
