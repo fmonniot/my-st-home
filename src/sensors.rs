@@ -79,7 +79,7 @@ mod runloop {
                 trace!("Visible: {}", visible);
                 trace!("Infrared: {}", infrared);
                 trace!("Full Spectrum: {}", full_spectrum);
-                trace!("Lux: {}", lux);
+                debug!("Lux: {}", lux);
 
                 match sender.send(SensorMessage::Luminosity {
                     visible,

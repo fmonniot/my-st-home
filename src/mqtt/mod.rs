@@ -21,7 +21,6 @@ pub struct STask {
 }
 
 impl STask {
-
     pub async fn send_event(&self, event: DeviceEvent) {
         let payload = serde_json::to_vec(&DeviceEvents::single(event)).unwrap();
         let topic = format!("/v1/deviceEvents/{}", self.device_id);

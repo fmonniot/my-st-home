@@ -27,7 +27,7 @@ impl LifxHandle {
     pub async fn set_group_brightness<S: Into<String>>(&self, group: S, brightness: u16) {
         let group = group.into();
         let colors = self.colors_for_group(&group).await;
-        debug!("set_group_brightness. group={}, colors={:?}", group, colors);
+        trace!("set_group_brightness. group={}, colors={:?}", group, colors);
 
         for (target, source, mut color, power_level, addr) in colors {
             let options = BuildOptions {

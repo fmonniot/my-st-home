@@ -40,13 +40,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // No state persistence for now
     let light_state = Arc::new(RwLock::new(false));
-    // Notify the cloud in which state we are 
-    s_task.send_event(mqtt::DeviceEvent::simple_str(
-        "main",
-        "switch",
-        "switch",
-        "off",
-    )).await;
+    // Notify the cloud in which state we are
+    s_task
+        .send_event(mqtt::DeviceEvent::simple_str(
+            "main", "switch", "switch", "off",
+        ))
+        .await;
+    // Turn off the lifx bulbs too ?
 
     tokio::spawn(logic::adaptive_brightness(
         sensors.messages(),
@@ -78,7 +78,7 @@ mod logic {
     use crate::{lifx::LifxHandle, mqtt::Command};
     use crate::{mqtt::DeviceEvent, sensors::SensorMessage};
     use futures::{Sink, SinkExt, Stream, StreamExt};
-    use log::{debug, warn};
+    use log::{debug, trace, warn};
     use std::sync::Arc;
     use tokio::sync::RwLock;
     use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
@@ -104,7 +104,10 @@ mod logic {
 
                     let current = { *light_state.read().await };
 
-                    debug!("Received command '{}', current state is '{}'", switch, current);
+                    debug!(
+                        "Received command '{}', current state is '{}'",
+                        switch, current
+                    );
                     if switch != current {
                         // Change light_state
                         {
@@ -116,12 +119,9 @@ mod logic {
 
                         // Send device event
                         debug!("Sending device event with value '{}'", value);
-                        events.send(DeviceEvent::simple_str(
-                            "main",
-                            "switch",
-                            "switch",
-                            value,
-                        )).await;
+                        events
+                            .send(DeviceEvent::simple_str("main", "switch", "switch", value))
+                            .await;
 
                         // Change lifx power level
                         // TODO Don't change the brightness setting, only power
@@ -155,7 +155,7 @@ mod logic {
                 Ok(SensorMessage::Luminosity { lux, .. }) => {
                     let correction = controller.update(lux as f64);
                     let next_bright = brightness_command as f64 + correction;
-                    debug!("next_bright after correction: {}", next_bright);
+                    trace!("next_bright after correction: {}", next_bright);
 
                     let brightness = match next_bright.round() as i64 {
                         n if n < 0 => 0,
