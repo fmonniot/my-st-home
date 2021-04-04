@@ -104,32 +104,118 @@ pub fn create() -> Result<impl Screen, ()> {
 #[cfg(not(target_os = "linux"))]
 mod mac {
     use super::Screen;
+    use embedded_graphics::{pixelcolor::BinaryColor, prelude::*};
+    use embedded_graphics_simulator::{
+        BinaryColorTheme, OutputSettingsBuilder, SimulatorDisplay, Window,
+    };
     use embedded_hal::blocking::delay::DelayMs;
+    use log::error;
+    use std::sync::mpsc;
+    use std::thread;
+    use bitvec::prelude::*;
 
-    pub struct MacScreen {}
+    pub struct MacScreen {
+        join: thread::JoinHandle<()>,
+        tx: mpsc::Sender<UiMessage>
+    }
+
+    /// Width of the display
+    pub const WIDTH: u32 = 800;
+    /// Height of the display
+    pub const HEIGHT: u32 = 480;
 
     impl Screen for MacScreen {
         type Error = ();
 
+        // The simulator don't got to sleep
         fn sleep(&mut self) -> Result<(), Self::Error> {
             Ok(())
         }
 
-        fn wake_up<DELAY: DelayMs<u8>>(&mut self, delay: &mut DELAY) -> Result<(), Self::Error> {
+        // Nor does it wake up
+        fn wake_up<DELAY: DelayMs<u8>>(&mut self, _delay: &mut DELAY) -> Result<(), Self::Error> {
             Ok(())
         }
 
         fn update_and_display_frame(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+            let size = Size::new(WIDTH, HEIGHT);
+            let pixel_count = size.width as usize * size.height as usize;
+
+            // The buffer store 8 pixels per entry (byte)
+            if buffer.len() * 8 != pixel_count {
+                error!("Trying to update screen with an invalide sized buffer: buffer.len = {}, expected = {}", buffer.len(), pixel_count / 8);
+            }
+
+            let mut display: SimulatorDisplay<BinaryColor> = SimulatorDisplay::new(size);
+
+
+            // TODO Find out if it's Msb or Lsb (Most/Least significan bit first)
+            let bits = buffer.view_bits::<Msb0>();
+
+            for (idx, bit) in bits.iter().enumerate() {
+                // Those conversion should be safe given the screen constraint we have asserted previously
+                let idx = idx as u32;
+                let x = (idx % WIDTH) as i32;
+                let y = (idx / WIDTH) as i32;
+
+                let point = Point::new(x, y);
+                let color = if *bit {
+                    BinaryColor::On
+                } else {
+                    BinaryColor::Off
+                };
+                let pixel = Pixel(point, color);
+
+                display.draw_pixel(pixel).unwrap(); // TODO error handling
+            }
+
+            self.tx.send(UiMessage::Update(display)).unwrap(); // TODO error handling
+
             Ok(())
         }
 
         fn clear_frame(&mut self) -> Result<(), Self::Error> {
+            self.tx.send(UiMessage::Clear).unwrap(); // TODO error handling
             Ok(())
         }
     }
 
+    enum UiMessage {
+        Update(SimulatorDisplay<BinaryColor>),
+        Clear,
+    }
+
     // TODO Return a Result
     pub fn create() -> MacScreen {
-        MacScreen {}
+        let (tx, rx) = mpsc::channel::<UiMessage>();
+
+        // SDL requires a single thread manage all operations (the "main" thread). Because we are
+        // using a multi-thread async runtime, we need to create a dedicated thread to be able to
+        // maintain this invarient.
+
+        let join = thread::spawn(move || {
+            // TODO Check if color theme match the e-ink device
+            let output_settings = OutputSettingsBuilder::new()
+                .theme(BinaryColorTheme::OledWhite)
+                .build();
+            let mut window = Window::new("Hello World", &output_settings);
+
+            for message in rx {
+                match message {
+                    UiMessage::Update(display) => {
+                        window.update(&display);
+                    }
+                    UiMessage::Clear => {
+                        let display = SimulatorDisplay::with_default_color(
+                            Size::new(WIDTH, HEIGHT),
+                            BinaryColor::Off,
+                        );
+                        window.update(&display);
+                    }
+                }
+            }
+        });
+
+        MacScreen { join, tx }
     }
 }

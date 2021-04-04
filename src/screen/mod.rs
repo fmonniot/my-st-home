@@ -35,9 +35,8 @@ pub fn spawn() -> (JoinHandle<()>, ScreenHandle) {
     // Then create the communication channel
     let (sender, receiver) = std::sync::mpsc::channel();
 
-    let mut screen = screen::create().expect("screen initialized");
-
     let handle = tokio::task::spawn_blocking(move || {
+        let mut screen = screen::create().expect("screen initialized");
         let mut delay = Delay {};
 
         // TODO Once we have the simulator in place, see if we need a special struct
