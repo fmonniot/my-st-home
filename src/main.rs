@@ -28,10 +28,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create our background processors (lifx, screen, mqtt, ST events)
     let s_task = mqtt::spawn(&cfg).await?;
-    let (screen_join_handle, screen_handle) = screen::spawn();
+    let (screen_task, window_run_loop) = screen::spawn();
     let lifx = lifx::spawn().await?;
     let sensors = sensors::spawn();
 
+    let screen_handle = screen_task.handle();
     // Dummy thing, to avoid unused warn until we have the real logic
     screen_handle.update(screen::ScreenMessage::UpdateLifxBulb {
         source: 0,
@@ -52,6 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         sensors.messages(),
         lifx.handle(),
         light_state.clone(),
+        screen_task.handle(),
     ));
 
     let event_sink = s_task.event_sink().await;
@@ -60,15 +62,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         event_sink,
         lifx.handle(),
         light_state.clone(),
+        screen_task.handle(),
     ));
 
     // TODO Need something to trigger a stop of the various background processes
     // rust signal handling ?
 
+    // Install the window run loop (require main thread).
+    // Maybe we should find another way to add what is effectively debug code
+    // (Maybe a different tool to test out the different frames ?)
+    // Note that on mac, this consume the signal received and as such we need
+    // two ctrl-c to exit.
+    window_run_loop();
+
     // At the end, await the end of the background processes
     sensors.join().await?;
     lifx.join_handle().await?;
-    screen_join_handle.await?;
+    screen_task.join().await?;
     s_task.join().await?;
 
     Ok(())
@@ -76,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 mod logic {
     use crate::{lifx::LifxHandle, mqtt::Command};
-    use crate::{mqtt::DeviceEvent, sensors::SensorMessage};
+    use crate::{mqtt::DeviceEvent, screen::ScreenHandle, sensors::SensorMessage};
     use futures::{Sink, SinkExt, Stream, StreamExt};
     use log::{debug, trace, warn};
     use std::sync::Arc;
@@ -88,6 +98,7 @@ mod logic {
         events: Si,
         lifx: LifxHandle,
         light_state: Arc<RwLock<bool>>,
+        _screen: ScreenHandle,
     ) where
         St: Stream<Item = Result<Command, BroadcastStreamRecvError>> + Unpin,
         Si: Sink<DeviceEvent>,
@@ -119,9 +130,15 @@ mod logic {
 
                         // Send device event
                         debug!("Sending device event with value '{}'", value);
-                        events
+                        match events
                             .send(DeviceEvent::simple_str("main", "switch", "switch", value))
-                            .await;
+                            .await
+                        {
+                            Ok(()) => (),
+                            Err(_) => {
+                                warn!("Error sending device event"); // TODO Error
+                            }
+                        }
 
                         // Change lifx power level
                         // TODO Don't change the brightness setting, only power
@@ -136,6 +153,7 @@ mod logic {
         mut sensors: S,
         lifx: LifxHandle,
         light_state: Arc<RwLock<bool>>,
+        screen: ScreenHandle,
     ) where
         S: Stream<Item = Result<SensorMessage, BroadcastStreamRecvError>> + Unpin,
     {
@@ -169,6 +187,9 @@ mod logic {
                     brightness_command = brightness;
                     lifx.set_group_brightness("Living Room - Desk", brightness)
                         .await;
+                    screen
+                        .update_group_brightness("Living Room - Desk", brightness)
+                        .unwrap(); // TODO Error handling
                 }
                 Err(error) => {
                     warn!("Cannot pull sensor data. error={:?}", error);

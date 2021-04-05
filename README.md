@@ -47,3 +47,7 @@ The binary will be found in `target/armv7-unknown-linux-gnueabihf/debug/mqtt-con
 
 Note: When doing a release, pass the `--release` flag and look in the `release` directory instead of `debug`.
 
+# Running on mac/windows
+
+When not targeting `linux`, we are using [https://github.com/embedded-graphics/simulator] to render our screen.
+This requires the SDL library to be installed on the system, lookup the link for instruction on how to do it.

@@ -9,10 +9,29 @@ use embedded_graphics::{
 use embedded_hal::prelude::*;
 use epd_waveshare::{color::*, epd7in5_v2::Display7in5, graphics::Display};
 
+use log::{debug, warn};
 use tokio::task::JoinHandle;
 mod screen;
 
 use screen::Screen;
+
+pub struct ScreenTask {
+    sender: std::sync::mpsc::Sender<ScreenMessage>,
+    join: JoinHandle<()>,
+}
+
+impl ScreenTask {
+    pub fn handle(&self) -> ScreenHandle {
+        ScreenHandle {
+            sender: self.sender.clone(),
+        }
+    }
+
+    pub async fn join(self) -> Result<(), tokio::task::JoinError> {
+        self.join.await?;
+        Ok(())
+    }
+}
 
 pub struct ScreenHandle {
     sender: std::sync::mpsc::Sender<ScreenMessage>,
@@ -25,18 +44,31 @@ impl ScreenHandle {
     ) -> Result<(), std::sync::mpsc::SendError<ScreenMessage>> {
         self.sender.send(msg)
     }
+
+    pub fn update_group_brightness(
+        &self,
+        group: &str,
+        brightness: u16,
+    ) -> Result<(), std::sync::mpsc::SendError<ScreenMessage>> {
+        self.sender.send(ScreenMessage::UpdateLifxGroup {
+            group: group.into(),
+            brightness,
+        })
+    }
 }
 
+#[derive(Debug)]
 pub enum ScreenMessage {
     UpdateLifxBulb { source: u32, power: bool },
+    UpdateLifxGroup { group: String, brightness: u16 },
 }
 
-pub fn spawn() -> (JoinHandle<()>, ScreenHandle) {
+pub fn spawn() -> (ScreenTask, impl FnOnce() -> ()) {
     // Then create the communication channel
     let (sender, receiver) = std::sync::mpsc::channel();
+    let (mut screen, runloop) = screen::create().expect("screen initialized");
 
-    let handle = tokio::task::spawn_blocking(move || {
-        let mut screen = screen::create().expect("screen initialized");
+    let join = tokio::task::spawn_blocking(move || {
         let mut delay = Delay {};
 
         // TODO Once we have the simulator in place, see if we need a special struct
@@ -84,11 +116,45 @@ pub fn spawn() -> (JoinHandle<()>, ScreenHandle) {
         println!("Finished tests - going to sleep");
         screen.sleep().expect("screen goes to sleep");
 
-        // Then the proper run loop
-        for _message in receiver.recv() {}
+        loop {
+            // Blocking until we receive the next message (or the channel closed)
+            // We don't need to use an async channel as `screen` calls block when using the e-ink device.
+            match receiver.recv() {
+                Err(_) => {
+                    // All Sender have closed, ending the loop
+                    break;
+                }
+                Ok(message) => {
+                    debug!("new screen message: {:?}", message);
+                    match message {
+                        ScreenMessage::UpdateLifxBulb { .. } => {
+                            display.clear_buffer(Color::Black);
+
+                            draw_text(&mut display, &format!("Received: {:?}", message), 175, 250);
+                            screen
+                                .update_and_display_frame(&display.buffer())
+                                .expect("display frame new graphics");
+                        }
+
+                        ScreenMessage::UpdateLifxGroup { .. } => {
+                            display.clear_buffer(Color::Black);
+
+                            draw_text(&mut display, &format!("Received: {:?}", message), 175, 250);
+                            screen
+                                .update_and_display_frame(&display.buffer())
+                                .expect("display frame new graphics");
+                        }
+                    }
+                }
+            }
+        }
+
+        warn!("Ending the screen actor");
     });
 
-    (handle, ScreenHandle { sender })
+    let task = ScreenTask { sender, join };
+
+    (task, runloop)
 }
 
 fn draw_text(display: &mut Display7in5, text: &str, x: i32, y: i32) {
