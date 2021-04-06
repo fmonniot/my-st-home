@@ -115,7 +115,7 @@ mod mac {
         BinaryColorTheme, OutputSettingsBuilder, SimulatorDisplay, Window,
     };
     use embedded_hal::blocking::delay::DelayMs;
-    use log::{debug, error, info, warn};
+    use log::{debug, error, info};
     use std::{sync::mpsc, time::Duration};
 
     pub struct MacScreen {
@@ -184,18 +184,6 @@ mod mac {
             let mut display: SimulatorDisplay<BinaryColor> =
                 SimulatorDisplay::new(Size::new(WIDTH, HEIGHT));
 
-            use embedded_graphics::{
-                fonts::{Font6x8, Text},
-                style::TextStyle,
-            };
-            let text = "embedded-graphics";
-            let width = text.len() as i32 * 6;
-            let text_style = TextStyle::new(Font6x8, BinaryColor::On);
-            Text::new(text, Point::new(64 - width / 2, 40))
-                .into_styled(text_style)
-                .draw(&mut display)
-                .unwrap();
-
             window.update(&display);
             // Consume the events
             window.events().fold((), |_, _| ());
@@ -222,7 +210,7 @@ mod mac {
                         }
                     }
                 };
-                
+
                 // Consume the events
                 for e in window.events() {
                     match e {
