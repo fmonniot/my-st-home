@@ -2,11 +2,12 @@ use crate::delay::Delay;
 use embedded_graphics::{
     fonts::{Font6x8, Text},
     pixelcolor::BinaryColor,
-    prelude::*,
     primitives::{Circle, Line, Rectangle},
     style::PrimitiveStyle,
-    text_style,
+    style::TextStyleBuilder,
+    text_style, DrawTarget,
 };
+use embedded_layout::{layout::linear::{LinearLayout, spacing::FixedMargin}, prelude::*};
 use epd_waveshare::{color::*, epd7in5_v2::Display7in5, graphics::Display};
 
 use log::{debug, warn};
@@ -170,6 +171,7 @@ impl Frame {
 
     /// Draw the current state onto a buffer. The buffer isn't cleared.
     fn draw<D: DrawTarget<BinaryColor>>(&self, display: &mut D) -> Result<(), D::Error> {
+        // Debug information
         // draw a rectangle around the screen
         Rectangle::new(Point::new(1, 1), Point::new(WIDTH - 1, HEIGHT - 1))
             .into_styled(PrimitiveStyle::with_stroke(White, 1))
@@ -181,26 +183,144 @@ impl Frame {
         draw_text(display, "bottom-left", 1, HEIGHT - 8 - 1);
         draw_text(display, "bottom-right", WIDTH - 6 * 12 - 1, HEIGHT - 8 - 1);
 
-        // draw a analog clock
-        Circle::new(Point::new(66, 64), 64)
-            .into_styled(PrimitiveStyle::with_stroke(White, 1))
+        // Draw the frame (Fixed frame for now, will go into a pattern match to choose what to display)
+
+        let display_area = display.display_area();
+
+        let mut clock = AnalogClock::new(Size::new(128, 128));
+        clock.translate(Point::new(10, 10));
+
+        let calendar = CalendarEventWidget::new("New event","Thu 08 Apr", Size::new(200, 40));
+
+        LinearLayout::horizontal()
+            .with_spacing(FixedMargin(4))
+            .add_view(clock)
+            .add_view(calendar)
+            .arrange()
+            .align_to(&display_area, horizontal::Center, vertical::Center)
             .draw(display)?;
 
-        Line::new(Point::new(66, 64), Point::new(2, 64))
-            .into_styled(PrimitiveStyle::with_stroke(White, 1))
-            .draw(display)?;
+        Ok(())
+    }
+}
 
-        Line::new(Point::new(66, 64), Point::new(82, 80))
-            .into_styled(PrimitiveStyle::with_stroke(White, 1))
-            .draw(display)?;
+struct CalendarEventWidget {
+    title: String,
+    date: String,
+    bounds: Rectangle,
+}
 
-        // And some text in the middle of the screen
-        draw_text(
-            display,
-            "It's working-WoB!",
-            WIDTH /2 - (17 / 2),
-            HEIGHT / 2 - 4,
+impl CalendarEventWidget {
+
+    fn new(title: &str, date: &str, size: Size) -> CalendarEventWidget {
+        CalendarEventWidget {
+            title: title.to_string(),
+            date: date.to_string(),
+            bounds: Rectangle::with_size(Point::zero(), size),
+        }
+    }
+}
+
+impl View for CalendarEventWidget {
+    #[inline]
+    fn translate(&mut self, by: Point) {
+        self.bounds.translate(by);
+    }
+
+    #[inline]
+    fn bounds(&self) -> Rectangle {
+        self.bounds
+    }
+}
+
+impl Drawable<BinaryColor> for &CalendarEventWidget {
+    fn draw<D: DrawTarget<BinaryColor>>(self, display: &mut D) -> Result<(), D::Error> {
+        // Create styles
+        let border_style = PrimitiveStyle::with_stroke(White, 1);
+        let text_style = TextStyleBuilder::new(Font6x8)
+            .text_color(White)
+            .background_color(Black)
+            .build();
+
+        // Create a 1px border
+        let border = self.bounds.into_styled(border_style);
+
+
+        // Create the title and dates
+        let mut information = LinearLayout::vertical()
+            .with_alignment(horizontal::Center)
+            .add_view(Text::new(&self.title, Point::new(2, 0)).into_styled(text_style))
+            .add_view(Text::new(&self.date, Point::new(4, 0)).into_styled(text_style))
+            .arrange();
+
+        // Align the text within the border, with some margin on the left
+        information
+            .align_to_mut(&border, horizontal::Left, vertical::Center)
+            .translate(Point::new(2, 0));
+
+        // Draw everything
+        border.draw(display)?;
+        information.draw(display)?;
+
+        Ok(())
+    }
+}
+
+struct AnalogClock {
+    bounds: Rectangle
+}
+
+impl AnalogClock {
+    fn new(size: Size) -> AnalogClock {
+        AnalogClock {
+            bounds: Rectangle::with_size(Point::zero(), size)
+        }
+    }
+}
+
+
+impl View for AnalogClock {
+    #[inline]
+    fn translate(&mut self, by: Point) {
+        self.bounds.translate(by);
+    }
+
+    #[inline]
+    fn bounds(&self) -> Rectangle {
+        self.bounds
+    }
+}
+
+impl Drawable<BinaryColor> for &AnalogClock {
+    fn draw<D: DrawTarget<BinaryColor>>(self, display: &mut D) -> Result<(), D::Error> {
+        println!("drawing analog clock within {:?}. bounds = {:?}", display.display_area(), self.bounds);
+
+        let center = self.bounds.center();
+
+        // TODO Find the size of the circle by looking at the min distance from center to border.
+
+        // TODO Do a real calculus for those two :)
+        let long = Point::new(
+            self.bounds.top_left.x + 2,
+            center.y
         );
+        let short = Point::new(
+            center.x + 18,
+            center.y + 16
+        );
+
+        // TODO Do we need to find the center point in the bounds ?
+        Circle::new(center, 64)
+            .into_styled(PrimitiveStyle::with_stroke(White, 1))
+            .draw(display)?;
+
+        Line::new(center, long)
+            .into_styled(PrimitiveStyle::with_stroke(White, 1))
+            .draw(display)?;
+
+        Line::new(center, short)
+            .into_styled(PrimitiveStyle::with_stroke(White, 1))
+            .draw(display)?;
 
         Ok(())
     }

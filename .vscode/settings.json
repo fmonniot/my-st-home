@@ -1,8 +1,8 @@
 {
-    //"rust-analyzer.cargo.target": "armv7-unknown-linux-gnueabihf",
+    "rust-analyzer.cargo.target": "armv7-unknown-linux-gnueabihf",
     "rust-analyzer.procMacro.enable": true,
     // For now disable macro error. Should be re-enabled once they have figured out "proc_macro_hack"
     "rust-analyzer.diagnostics.disabled": [
-        "macro-error"
+        "unresolved-macro-call"
     ],
 }

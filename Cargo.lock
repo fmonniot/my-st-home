@@ -339,6 +339,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "embedded-layout"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2192befe846dc58ba423757bb903b9d817737f8a7ddf4f4f7feb4b55b90ce4b"
+dependencies = [
+ "embedded-graphics",
+]
+
+[[package]]
 name = "encoding_rs"
 version = "0.8.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -859,6 +868,7 @@ dependencies = [
  "embedded-graphics",
  "embedded-graphics-simulator",
  "embedded-hal",
+ "embedded-layout",
  "env_logger",
  "epd-waveshare",
  "futures",
