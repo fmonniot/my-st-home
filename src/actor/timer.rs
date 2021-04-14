@@ -1,5 +1,9 @@
 use std::{collections::HashMap, time::Duration};
-use tokio::{sync::{mpsc, oneshot}, task::JoinHandle, time::Instant};
+use tokio::{
+    sync::{mpsc, oneshot},
+    task::JoinHandle,
+    time::Instant,
+};
 
 use super::{ActorRef, Message};
 
@@ -21,7 +25,12 @@ pub trait Timer {
         T: Message + Into<M>,
         M: Message;
 
-    async fn schedule_once<T, M>(&self, delay: Duration, receiver: ActorRef<M>, msg: T) -> ScheduleId
+    async fn schedule_once<T, M>(
+        &self,
+        delay: Duration,
+        receiver: ActorRef<M>,
+        msg: T,
+    ) -> ScheduleId
     where
         T: Message + Into<M>,
         M: Message;
@@ -40,7 +49,7 @@ enum Job {
     Cancel {
         id: ScheduleId,
         reply_to: oneshot::Sender<u32>,
-    }
+    },
 }
 
 pub struct TokioTimer {
@@ -49,7 +58,6 @@ pub struct TokioTimer {
 }
 
 impl TokioTimer {
-
     pub fn new() -> TimerRef {
         let (tx, mut rx) = mpsc::channel(10);
 
@@ -62,10 +70,15 @@ impl TokioTimer {
 
             while let Some(job) = rx.recv().await {
                 match job {
-                    Job::Interval { initial_delay, interval, send, reply_to } => {
+                    Job::Interval {
+                        initial_delay,
+                        interval,
+                        send,
+                        reply_to,
+                    } => {
                         let start = Instant::now() + initial_delay;
                         let mut interval = tokio::time::interval_at(start, interval);
-                
+
                         let handle = tokio::spawn(async move {
                             loop {
                                 let _ = interval.tick().await;
@@ -73,17 +86,17 @@ impl TokioTimer {
                                 send();
                             }
                         });
-                
+
                         let id = timer.next_schedule_id();
                         timer.intervals.insert(id, handle);
-                        
+
                         reply_to.send(id); // TODO Error handling
                     }
                     Job::Cancel { id, reply_to } => {
                         let mut aborted = 0;
                         if let Some((_, handle)) = timer.intervals.iter().find(|(i, _)| i == &&id) {
                             handle.abort();
-                            aborted +=1;
+                            aborted += 1;
                         }
 
                         reply_to.send(aborted); // TODO Error handling
@@ -108,7 +121,6 @@ pub struct TimerRef(mpsc::Sender<Job>);
 
 #[async_trait::async_trait]
 impl Timer for TimerRef {
-
     async fn schedule<T, M>(
         &self,
         initial_delay: Duration,
@@ -130,24 +142,29 @@ impl Timer for TimerRef {
             }),
             reply_to: tx,
         };
-        
+
         self.0.send(job).await; // todo error
 
         rx.await.unwrap() // todo error
     }
 
-    async fn schedule_once<T, M>(&self, delay: Duration, receiver: ActorRef<M>, msg: T) -> ScheduleId
+    async fn schedule_once<T, M>(
+        &self,
+        delay: Duration,
+        receiver: ActorRef<M>,
+        msg: T,
+    ) -> ScheduleId
     where
         T: Message + Into<M>,
-        M: Message {
-
-            todo!()
-        }
+        M: Message,
+    {
+        todo!()
+    }
 
     async fn cancel_schedule(&self, id: ScheduleId) -> bool {
         let (reply_to, rx) = oneshot::channel();
 
-        self.0.send(Job::Cancel{id, reply_to}).await;
+        self.0.send(Job::Cancel { id, reply_to }).await;
 
         match rx.await {
             Ok(0) => false,

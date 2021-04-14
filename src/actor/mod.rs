@@ -2,11 +2,15 @@
 mod channel;
 mod timer;
 
-use std::{any::{Any}, fmt::{self, Debug}, collections::HashMap};
-use std::sync::{mpsc, Mutex, Arc};
-use std::time::{Duration};
-use timer::{ScheduleId, Timer};
 use channel::{Channel, ChannelRef, Topic};
+use std::sync::{mpsc, Arc, Mutex};
+use std::time::Duration;
+use std::{
+    any::Any,
+    collections::HashMap,
+    fmt::{self, Debug},
+};
+use timer::{ScheduleId, Timer};
 
 pub trait Message: Debug + Clone + Send + 'static {}
 
@@ -105,7 +109,6 @@ pub struct ActorRef<Msg: Message> {
 }
 
 impl<Msg: Message> ActorRef<Msg> {
-
     pub fn send_msg(&self, msg: Msg) {
         // consume the result (we don't return it to user)
         //let _ = self.cell.send_msg(msg);
@@ -144,8 +147,6 @@ impl<Msg> Context<Msg>
 where
     Msg: Message,
 {
-
-
     fn actor_of<A>(&self, name: &str) -> Result<ActorRef<<A as Actor>::Msg>, () /* CreateError */>
     where
         A: Actor,
@@ -162,8 +163,8 @@ where
     }
 
     /// Find, or create if none exists, a channel for the given message type and name
-    fn channel<M: Message>(&self, name: &str) -> ChannelRef<M> {
-        todo!()
+    fn channel<M: Message>(&self, name: Topic<M>) -> ChannelRef<M> {
+        self.system.channel(name)
     }
 }
 
@@ -181,9 +182,7 @@ pub enum KernelMsg {
 }
 
 #[derive(Debug, Clone)]
-enum RootMessage {
-
-}
+enum RootMessage {}
 
 impl Message for RootMessage {}
 
@@ -201,14 +200,11 @@ pub struct ActorSystem {
     pub timer: timer::TimerRef,
     // Require this field to be Send + Sync, which all maps don't do
     // automatically unless keys and values also implements them.
-    channels: Arc<Mutex<HashMap<String, Box<dyn Any + Send>>>>
-    //pub(crate) provider: Provider,
+    // Map of topic name to actor. TODO Does that actually make sense ?
+    channels: Arc<Mutex<HashMap<String, Box<dyn Any + Send>>>>, //pub(crate) provider: Provider,
 }
 
-
-
 impl ActorSystem {
-
     fn actor_of<A>(&self, name: &str) -> Result<ActorRef<<A as Actor>::Msg>, () /* CreateError */>
     where
         A: Actor,
@@ -224,12 +220,9 @@ impl ActorSystem {
         todo!()
     }
 
-
-    // TODO What if Topic would need to have the messages type associated with it ?
-    // If we can do something like `const MY_TOPIC: Topic<MyMessage> = Topic("my-message");` it would be pretty dope
     fn channel<M: Message>(&self, name: Topic<M>) -> ChannelRef<M> {
         let mut channels = self.channels.lock().unwrap();
-        
+
         match channels.get(&name.0) {
             Some(channel) => {
                 if let Some(addr) = channel.downcast_ref::<ChannelRef<M>>() {
@@ -243,15 +236,16 @@ impl ActorSystem {
             None => {
                 // Create channel for given type
                 // - What's the actor name ? /system/channels/type_id ?
-                let actor = self.actor_of::<Channel<M>>(&format!("channels/{}", name)).unwrap();
-                let c_ref = ChannelRef::new(actor);
+                let actor = self
+                    .actor_of::<Channel<M>>(&format!("channels/{}", name))
+                    .unwrap();
+                let c_ref = ChannelRef::new(actor, name.clone());
                 channels.insert(name.0, Box::new(c_ref.clone()));
-                
+
                 c_ref
             }
         }
     }
-
 }
 
 impl fmt::Debug for ActorSystem {
@@ -277,10 +271,17 @@ impl Timer for ActorSystem {
         T: Message + Into<M>,
         M: Message,
     {
-        self.timer.schedule(initial_delay, interval, receiver, msg).await
+        self.timer
+            .schedule(initial_delay, interval, receiver, msg)
+            .await
     }
 
-    async fn schedule_once<T, M>(&self, delay: Duration, receiver: ActorRef<M>, msg: T) -> ScheduleId
+    async fn schedule_once<T, M>(
+        &self,
+        delay: Duration,
+        receiver: ActorRef<M>,
+        msg: T,
+    ) -> ScheduleId
     where
         T: Message + Into<M>,
         M: Message,
@@ -332,20 +333,29 @@ pub trait Actor: Send + 'static {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use channel::StaticTopic;
+
+    const SENSOR_MEASUREMENT_TOPIC: StaticTopic<u32> = StaticTopic::new("sensors");
 
     struct Sensors {
-        channel: Option<ActorRef<u32>>, // type is probably wrong
+        channel: Option<ChannelRef<u32>>, // type is probably wrong
     }
+
+    #[derive(Debug, Clone)]
     enum SensorMessage {
         ReadRequest,
     }
+
+    impl Message for SensorMessage {}
+    impl Message for u32 {}
 
     impl Actor for Sensors {
         type Msg = SensorMessage;
 
         fn pre_start(&mut self, ctx: &Context<Self::Msg>) {
             // register to a channel as a producer
-            let producer = ctx.system.channel_producer("");
+            self.channel = Some(ctx.channel(SENSOR_MEASUREMENT_TOPIC.into()));
+
             // send sensor read message
             ctx.myself.send_msg(SensorMessage::ReadRequest)
         }
@@ -354,12 +364,12 @@ mod tests {
             match msg {
                 SensorMessage::ReadRequest => {
                     let read = self.read();
-                    if let Some(channel) = self.channel {
-                        channel.send_msg(read);
+                    if let Some(channel) = &self.channel {
+                        channel.publish(read);
                     }
                     let delay = Duration::from_secs(5);
                     ctx.system
-                        .schedule_once(delay, ctx.myself, SensorMessage::ReadRequest);
+                        .schedule_once(delay, ctx.myself.clone(), SensorMessage::ReadRequest);
                 }
             }
         }

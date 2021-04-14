@@ -1,46 +1,73 @@
 //! A specialized actor for providing Publish/Subscribe capabilities.
 //!
 
-use std::{any::{Any, TypeId}, collections::HashMap};
+use super::{Actor, ActorRef, Context, Message};
+use std::{
+    any::{Any, TypeId},
+    collections::HashMap,
+    marker::PhantomData,
+};
 use tokio::sync::oneshot;
-use super::{ActorRef, Message, Actor, Context};
 
 #[derive(Debug, Clone)]
-pub struct ChannelRef<Msg: Message>(ActorRef<ChannelMsg<Msg>>);
+pub struct ChannelRef<Msg: Message>(ActorRef<ChannelMsg<Msg>>, Topic<Msg>);
 
 impl<Msg: Message> ChannelRef<Msg> {
-    pub(super) fn new(r: ActorRef<ChannelMsg<Msg>>) -> ChannelRef<Msg> {
-        ChannelRef(r)
+    pub(super) fn new(r: ActorRef<ChannelMsg<Msg>>, topic: Topic<Msg>) -> ChannelRef<Msg> {
+        ChannelRef(r, topic)
+    }
+
+    pub fn publish(&self, msg: Msg) {
+        self.0.send_msg(ChannelMsg::Publish {
+            topic: self.1.clone(),
+            msg,
+        })
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum ChannelMsg<Msg: Message> {
     /// Publish message
-    Publish{
+    Publish {
         topic: Topic<Msg>,
         msg: Msg,
     },
 
     /// Subscribe given `ActorRef` to a topic on a channel
-    Subscribe{
+    Subscribe {
         topic: Topic<Msg>,
         actor: ActorRef<Msg>,
     },
 
     // Unsubscribe the given `ActorRef` from a topic on a channel
-    Unsubscribe{
+    Unsubscribe {
         topic: Topic<Msg>,
         actor: ActorRef<Msg>,
     },
 
     // Unsubscribe the given `ActorRef` from all topics on a channel
-    UnsubscribeAll{
+    UnsubscribeAll {
         actor: ActorRef<Msg>,
     },
 }
 
 impl<Msg: Message> Message for ChannelMsg<Msg> {}
+
+// To be able to create the topic name as `const`. Let's see if that's a
+// useful pattern or not really.
+pub struct StaticTopic<Msg>(&'static str, std::marker::PhantomData<Msg>);
+
+impl<M> StaticTopic<M> {
+    pub const fn new(name: &'static str) -> StaticTopic<M> {
+        StaticTopic(name, PhantomData)
+    }
+}
+
+impl<M: Message> Into<Topic<M>> for StaticTopic<M> {
+    fn into(self) -> Topic<M> {
+        Topic::new(self.0)
+    }
+}
 
 /// Topics allow channel subscribers to filter messages by interest
 /// When publishing a message to a channel a Topic is provided.
@@ -66,8 +93,14 @@ impl<M: Message> std::hash::Hash for Topic<M> {
     }
 }
 
+impl<M: Message> Topic<M> {
+    pub fn new(name: &str) -> Topic<M> {
+        Topic(name.to_string(), PhantomData)
+    }
+}
+
 pub struct Channel<Msg: Message> {
-    subscriptions: HashMap<Topic<Msg>, Vec<ActorRef<Msg>>>
+    subscriptions: HashMap<Topic<Msg>, Vec<ActorRef<Msg>>>,
 }
 
 impl<Msg> Actor for Channel<Msg>
@@ -77,7 +110,6 @@ where
     type Msg = ChannelMsg<Msg>;
 
     fn recv(&mut self, ctx: &Context<Self::Msg>, msg: Self::Msg) {
-
         match msg {
             ChannelMsg::Publish { topic, msg } => {
                 if let Some(actors) = self.subscriptions.get(&topic) {
@@ -88,7 +120,7 @@ where
             }
             ChannelMsg::Subscribe { topic, actor } => {
                 let entry = self.subscriptions.entry(topic).or_default();
-                
+
                 // TODO Maybe check if ActorRef is already in ? Use a Set instead of a Vec ?
                 entry.push(actor);
             }
@@ -109,7 +141,11 @@ where
     // todo sys_recv and unsubscribe everyone
 }
 
-fn unsubscribe<Msg: Message>(subscriptions: &mut HashMap<Topic<Msg>, Vec<ActorRef<Msg>>>, topic: &Topic<Msg>, actor: &ActorRef<Msg>) {
+fn unsubscribe<Msg: Message>(
+    subscriptions: &mut HashMap<Topic<Msg>, Vec<ActorRef<Msg>>>,
+    topic: &Topic<Msg>,
+    actor: &ActorRef<Msg>,
+) {
     if let Some(actors) = subscriptions.get_mut(topic) {
         let p = actors.iter().position(|a| a.path() == actor.path());
         if let Some(index) = p {
@@ -149,7 +185,7 @@ impl ChannelRegistry {
                 let actor = self.actor_of::<Channel<M>>(&format!("channels/{}", name)).unwrap();
                 let c_ref = ChannelRef::new(actor);
                 self.channels.insert(name.0, Box::new(c_ref.clone()));
-                
+
                 c_ref
             }
         }
