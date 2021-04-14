@@ -2,7 +2,7 @@ use mqtt::packet::puback;
 use std::{collections::HashMap, time::Duration};
 use tokio::{task::JoinHandle, time::Instant};
 
-use super::{ActorRef, AnyMessage, BasicActorRef, Message, Sender};
+use super::{ActorRef, AnyMessage, BasicActorRef, Message};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScheduleId(u32);
@@ -13,20 +13,13 @@ pub trait Timer {
         initial_delay: Duration,
         interval: Duration,
         receiver: ActorRef<M>,
-        sender: Sender,
         msg: T,
     ) -> ScheduleId
     where
         T: Message + Into<M>,
         M: Message;
 
-    fn schedule_once<T, M>(
-        &self,
-        delay: Duration,
-        receiver: ActorRef<M>,
-        sender: Sender,
-        msg: T,
-    ) -> ScheduleId
+    fn schedule_once<T, M>(&self, delay: Duration, receiver: ActorRef<M>, msg: T) -> ScheduleId
     where
         T: Message + Into<M>,
         M: Message;
@@ -39,7 +32,6 @@ pub struct OneOffJob {}
 pub struct IntervalJob {
     interval: Duration,
     receiver: BasicActorRef,
-    sender: Sender,
     msg: AnyMessage,
 }
 
@@ -61,7 +53,6 @@ impl TokioTimer {
         initial_delay: Duration,
         interval: Duration,
         receiver: BasicActorRef,
-        sender: Sender,
         msg: AnyMessage,
     ) {
         let start = Instant::now() + initial_delay;
@@ -72,7 +63,7 @@ impl TokioTimer {
             loop {
                 let _ = interval.tick().await;
 
-                receiver.try_tell_any(&mut msg, sender.clone());
+                receiver.try_tell_any(&mut msg);
             }
         });
 

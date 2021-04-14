@@ -1,6 +1,7 @@
 //! A very small and imperfect actor system.
 mod timer;
 
+use futures::channel::oneshot;
 use std::any::Any;
 use std::fmt::{self, Debug};
 use std::sync::mpsc;
@@ -11,16 +12,18 @@ pub trait Message: Debug + Clone + Send + 'static {}
 
 pub struct AnyMessage {
     pub msg: Option<Box<dyn Any + Send>>,
+    one_time: bool,
 }
 pub struct DowncastAnyMessageError;
 
 impl AnyMessage {
-    pub fn new<T>(msg: T) -> Self
+    pub fn new<T>(msg: T, one_time: bool) -> Self
     where
         T: Any + Message,
     {
         Self {
             msg: Some(Box::new(msg)),
+            one_time,
         }
     }
 
@@ -98,34 +101,20 @@ impl BasicActorRef {
     /// Send a message to this actor
     ///
     /// Returns a result. If the message type is not supported Error is returned.
-    pub fn try_tell<Msg>(
-        &self,
-        msg: Msg,
-        sender: impl Into<Option<BasicActorRef>>,
-    )// -> Result<(), AnyEnqueueError>
+    pub fn try_tell<Msg>(&self, msg: Msg)
+    // -> Result<(), AnyEnqueueError>
     where
         Msg: Message + Send,
     {
-        //self.try_tell_any(&mut AnyMessage::new(msg, true), sender)
+        //self.try_tell_any(&mut AnyMessage::new(msg, true))
         todo!()
     }
 
-    pub fn try_tell_any(
-        &self,
-        msg: &mut AnyMessage,
-        sender: impl Into<Option<BasicActorRef>>,
-    )// -> Result<(), AnyEnqueueError>
-     {
-        //self.cell.send_any_msg(msg, sender.into())
+    pub fn try_tell_any(&self, msg: &mut AnyMessage) // -> Result<(), AnyEnqueueError>
+    {
+        //self.cell.send_any_msg(msg)
         todo!()
     }
-}
-
-/// Wraps message and sender
-#[derive(Debug, Clone)]
-pub struct Envelope<T: Message> {
-    pub sender: Option<BasicActorRef>,
-    pub msg: T,
 }
 
 impl fmt::Debug for BasicActorRef {
@@ -174,13 +163,9 @@ impl<Msg: Message> ActorRef<Msg> {
         ActorRef { cell }
     }
 
-    pub fn send_msg(&self, msg: Msg, sender: impl Into<Option<BasicActorRef>>) {
-        let envelope = Envelope {
-            msg,
-            sender: sender.into(),
-        };
+    pub fn send_msg(&self, msg: Msg) {
         // consume the result (we don't return it to user)
-        //let _ = self.cell.send_msg(envelope);
+        //let _ = self.cell.send_msg(msg);
     }
 }
 
@@ -219,20 +204,15 @@ pub enum KernelMsg {
 ///
 /// The `ActorSystem` provides a runtime on which actors are executed.
 /// It also provides common services such as channels and scheduling.
-/// The `ActorSystem` is the heart of a Riker application,
-/// starting several threads when it is created. Create only one instance
-/// of `ActorSystem` per application.
-#[allow(dead_code)]
-#[derive(Clone)]
 pub struct ActorSystem {
     //proto: Arc<ProtoSystem>,
-//sys_actors: Option<SysActors>,
-//log: LoggingSystem,
-//debug: bool,
-//pub exec: ThreadPool,
+    //sys_actors: Option<SysActors>,
+    //log: LoggingSystem,
+    //debug: bool,
+    //pub exec: ThreadPool,
     pub timer: timer::TokioTimer,
-//pub sys_channels: Option<SysChannels>,
-//pub(crate) provider: Provider,
+    //pub sys_channels: Option<SysChannels>,
+    //pub(crate) provider: Provider,
 }
 
 impl fmt::Debug for ActorSystem {
@@ -251,7 +231,6 @@ impl Timer for ActorSystem {
         initial_delay: Duration,
         interval: Duration,
         receiver: ActorRef<M>,
-        sender: Sender,
         msg: T,
     ) -> ScheduleId
     where
@@ -261,13 +240,7 @@ impl Timer for ActorSystem {
         todo!()
     }
 
-    fn schedule_once<T, M>(
-        &self,
-        delay: Duration,
-        receiver: ActorRef<M>,
-        sender: Sender,
-        msg: T,
-    ) -> ScheduleId
+    fn schedule_once<T, M>(&self, delay: Duration, receiver: ActorRef<M>, msg: T) -> ScheduleId
     where
         T: Message + Into<M>,
         M: Message,
@@ -279,8 +252,6 @@ impl Timer for ActorSystem {
         todo!()
     }
 }
-
-pub type Sender = Option<BasicActorRef>;
 
 pub trait Actor: Send + 'static {
     type Msg: Message;
@@ -309,13 +280,13 @@ pub trait Actor: Send + 'static {
     ///
     /// It is guaranteed that only one message in the actor's mailbox is processed
     /// at any one time, including `recv` and `sys_recv`.
-    fn sys_recv(&mut self, ctx: &Context<Self::Msg>, msg: SystemMsg, sender: Sender) {}
+    fn sys_recv(&mut self, ctx: &Context<Self::Msg>, msg: SystemMsg) {}
 
     /// Invoked when an actor receives a message
     ///
     /// It is guaranteed that only one message in the actor's mailbox is processed
     /// at any one time, including `recv` and `sys_recv`.
-    fn recv(&mut self, ctx: &Context<Self::Msg>, msg: Self::Msg, sender: Sender);
+    fn recv(&mut self, ctx: &Context<Self::Msg>, msg: Self::Msg);
 }
 
 #[cfg(test)]
@@ -335,19 +306,19 @@ mod tests {
         fn pre_start(&mut self, ctx: &Context<Self::Msg>) {
             // register to a channel as a producer
             // send sensor read message
-            ctx.myself.send_msg(SensorMessage::ReadRequest, None)
+            ctx.myself.send_msg(SensorMessage::ReadRequest)
         }
 
-        fn recv(&mut self, ctx: &Context<Self::Msg>, msg: Self::Msg, sender: Sender) {
+        fn recv(&mut self, ctx: &Context<Self::Msg>, msg: Self::Msg) {
             match msg {
                 SensorMessage::ReadRequest => {
                     let read = self.read();
                     if let Some(channel) = self.channel {
-                        channel.send_msg(read, None);
+                        channel.send_msg(read);
                     }
                     let delay = Duration::from_secs(5);
                     ctx.system
-                        .schedule_once(delay, ctx.myself, None, SensorMessage::ReadRequest);
+                        .schedule_once(delay, ctx.myself, SensorMessage::ReadRequest);
                 }
             }
         }
