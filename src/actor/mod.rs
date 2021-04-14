@@ -1,8 +1,53 @@
 //! A very small and imperfect actor system.
+mod timer;
+
+use std::any::Any;
 use std::fmt::{self, Debug};
 use std::sync::mpsc;
+use std::time::{Duration, Instant};
+use timer::{ScheduleId, Timer};
 
 pub trait Message: Debug + Clone + Send + 'static {}
+
+pub struct AnyMessage {
+    pub msg: Option<Box<dyn Any + Send>>,
+}
+pub struct DowncastAnyMessageError;
+
+impl AnyMessage {
+    pub fn new<T>(msg: T) -> Self
+    where
+        T: Any + Message,
+    {
+        Self {
+            msg: Some(Box::new(msg)),
+        }
+    }
+
+    pub fn take<T>(&mut self) -> Result<T, DowncastAnyMessageError>
+    where
+        T: Any + Message,
+    {
+        if self.one_time {
+            match self.msg.take() {
+                Some(m) => {
+                    if m.is::<T>() {
+                        Ok(*m.downcast::<T>().unwrap())
+                    } else {
+                        Err(DowncastAnyMessageError)
+                    }
+                }
+                None => Err(DowncastAnyMessageError),
+            }
+        } else {
+            match self.msg.as_ref() {
+                Some(m) if m.is::<T>() => Ok(m.downcast_ref::<T>().cloned().unwrap()),
+                Some(_) => Err(DowncastAnyMessageError),
+                None => Err(DowncastAnyMessageError),
+            }
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum SystemMsg {
@@ -11,7 +56,6 @@ pub enum SystemMsg {
     Event(SystemEvent),
     Failed(BasicActorRef),
 }
-
 
 #[derive(Clone, Debug)]
 pub enum SystemCmd {
@@ -48,6 +92,40 @@ pub enum SystemEvent {
 #[derive(Clone)]
 pub struct BasicActorRef {
     pub cell: ActorCell,
+}
+
+impl BasicActorRef {
+    /// Send a message to this actor
+    ///
+    /// Returns a result. If the message type is not supported Error is returned.
+    pub fn try_tell<Msg>(
+        &self,
+        msg: Msg,
+        sender: impl Into<Option<BasicActorRef>>,
+    )// -> Result<(), AnyEnqueueError>
+    where
+        Msg: Message + Send,
+    {
+        //self.try_tell_any(&mut AnyMessage::new(msg, true), sender)
+        todo!()
+    }
+
+    pub fn try_tell_any(
+        &self,
+        msg: &mut AnyMessage,
+        sender: impl Into<Option<BasicActorRef>>,
+    )// -> Result<(), AnyEnqueueError>
+     {
+        //self.cell.send_any_msg(msg, sender.into())
+        todo!()
+    }
+}
+
+/// Wraps message and sender
+#[derive(Debug, Clone)]
+pub struct Envelope<T: Message> {
+    pub sender: Option<BasicActorRef>,
+    pub msg: T,
 }
 
 impl fmt::Debug for BasicActorRef {
@@ -88,6 +166,22 @@ pub struct ExtendedCell<Msg: Message> {
 #[derive(Clone)]
 pub struct ActorRef<Msg: Message> {
     pub cell: ExtendedCell<Msg>,
+}
+
+impl<Msg: Message> ActorRef<Msg> {
+    #[doc(hidden)]
+    pub fn new(cell: ExtendedCell<Msg>) -> ActorRef<Msg> {
+        ActorRef { cell }
+    }
+
+    pub fn send_msg(&self, msg: Msg, sender: impl Into<Option<BasicActorRef>>) {
+        let envelope = Envelope {
+            msg,
+            sender: sender.into(),
+        };
+        // consume the result (we don't return it to user)
+        //let _ = self.cell.send_msg(envelope);
+    }
 }
 
 /// Provides context, including the actor system during actor execution.
@@ -132,13 +226,13 @@ pub enum KernelMsg {
 #[derive(Clone)]
 pub struct ActorSystem {
     //proto: Arc<ProtoSystem>,
-    //sys_actors: Option<SysActors>,
-    //log: LoggingSystem,
-    //debug: bool,
-    //pub exec: ThreadPool,
-    //pub timer: TimerRef,
-    //pub sys_channels: Option<SysChannels>,
-    //pub(crate) provider: Provider,
+//sys_actors: Option<SysActors>,
+//log: LoggingSystem,
+//debug: bool,
+//pub exec: ThreadPool,
+    pub timer: timer::TokioTimer,
+//pub sys_channels: Option<SysChannels>,
+//pub(crate) provider: Provider,
 }
 
 impl fmt::Debug for ActorSystem {
@@ -146,13 +240,45 @@ impl fmt::Debug for ActorSystem {
         write!(
             f,
             "ActorSystem[Name: {}, Start Time: {}, Uptime: {} seconds]",
-            "self.name()",
-            "self.start_date()",
-            "self.uptime()"
+            "self.name()", "self.start_date()", "self.uptime()"
         )
     }
 }
 
+impl Timer for ActorSystem {
+    fn schedule<T, M>(
+        &self,
+        initial_delay: Duration,
+        interval: Duration,
+        receiver: ActorRef<M>,
+        sender: Sender,
+        msg: T,
+    ) -> ScheduleId
+    where
+        T: Message + Into<M>,
+        M: Message,
+    {
+        todo!()
+    }
+
+    fn schedule_once<T, M>(
+        &self,
+        delay: Duration,
+        receiver: ActorRef<M>,
+        sender: Sender,
+        msg: T,
+    ) -> ScheduleId
+    where
+        T: Message + Into<M>,
+        M: Message,
+    {
+        todo!()
+    }
+
+    fn cancel_schedule(&self, id: ScheduleId) {
+        todo!()
+    }
+}
 
 pub type Sender = Option<BasicActorRef>;
 
@@ -192,3 +318,49 @@ pub trait Actor: Send + 'static {
     fn recv(&mut self, ctx: &Context<Self::Msg>, msg: Self::Msg, sender: Sender);
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Sensors {
+        channel: Option<ActorRef<u32>>, // type is probably wrong
+    }
+    enum SensorMessage {
+        ReadRequest,
+    }
+
+    impl Actor for Sensors {
+        type Msg = SensorMessage;
+
+        fn pre_start(&mut self, ctx: &Context<Self::Msg>) {
+            // register to a channel as a producer
+            // send sensor read message
+            ctx.myself.send_msg(SensorMessage::ReadRequest, None)
+        }
+
+        fn recv(&mut self, ctx: &Context<Self::Msg>, msg: Self::Msg, sender: Sender) {
+            match msg {
+                SensorMessage::ReadRequest => {
+                    let read = self.read();
+                    if let Some(channel) = self.channel {
+                        channel.send_msg(read, None);
+                    }
+                    let delay = Duration::from_secs(5);
+                    ctx.system
+                        .schedule_once(delay, ctx.myself, None, SensorMessage::ReadRequest);
+                }
+            }
+        }
+    }
+
+    impl Sensors {
+        fn read(&self) -> u32 {
+            0
+        }
+    }
+
+    #[test]
+    fn testing_my_use_case() {
+        //let system = ActorSystem::new().unwrap();
+    }
+}
