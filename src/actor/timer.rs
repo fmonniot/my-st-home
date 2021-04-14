@@ -6,6 +6,8 @@ use super::{ActorRef, Message};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScheduleId(u32);
 
+// TODO If we don't want async functions (as it would be strange in actor-land)
+// then we need to remove the confirmation (reply_to)
 #[async_trait::async_trait]
 pub trait Timer {
     async fn schedule<T, M>(
@@ -101,6 +103,7 @@ impl TokioTimer {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct TimerRef(mpsc::Sender<Job>);
 
 #[async_trait::async_trait]

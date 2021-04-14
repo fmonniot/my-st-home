@@ -1,11 +1,12 @@
 //! A very small and imperfect actor system.
+mod channel;
 mod timer;
 
-use futures::channel::oneshot;
-use std::fmt::{self, Debug};
-use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::{any::{Any}, fmt::{self, Debug}, collections::HashMap};
+use std::sync::{mpsc, Mutex, Arc};
+use std::time::{Duration};
 use timer::{ScheduleId, Timer};
+use channel::{Channel, ChannelRef, Topic};
 
 pub trait Message: Debug + Clone + Send + 'static {}
 
@@ -79,12 +80,6 @@ pub struct ActorCell {
     //inner: Arc<ActorCellInner>,
 }
 
-#[derive(Clone)]
-pub struct ExtendedCell<Msg: Message> {
-    cell: ActorCell,
-    mailbox: mpsc::Sender<Msg>,
-}
-
 /// A lightweight, typed reference to interact with its underlying
 /// actor instance through concurrent messaging.
 ///
@@ -105,18 +100,25 @@ pub struct ExtendedCell<Msg: Message> {
 /// be valid.
 #[derive(Clone)]
 pub struct ActorRef<Msg: Message> {
-    pub cell: ExtendedCell<Msg>,
+    cell: ActorCell,
+    mailbox: mpsc::Sender<Msg>,
 }
 
 impl<Msg: Message> ActorRef<Msg> {
-    #[doc(hidden)]
-    pub fn new(cell: ExtendedCell<Msg>) -> ActorRef<Msg> {
-        ActorRef { cell }
-    }
 
     pub fn send_msg(&self, msg: Msg) {
         // consume the result (we don't return it to user)
         //let _ = self.cell.send_msg(msg);
+    }
+
+    pub fn path(&self) -> &str {
+        todo!()
+    }
+}
+
+impl<Msg: Message> fmt::Debug for ActorRef<Msg> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ActorRef[{:?}]", "self.uri()")
     }
 }
 
@@ -138,6 +140,33 @@ pub struct Context<Msg: Message> {
     pub(crate) kernel: KernelRef,
 }
 
+impl<Msg> Context<Msg>
+where
+    Msg: Message,
+{
+
+
+    fn actor_of<A>(&self, name: &str) -> Result<ActorRef<<A as Actor>::Msg>, () /* CreateError */>
+    where
+        A: Actor,
+    {
+        /*
+        self.system.provider.create_actor(
+            Props::new::<A>(),
+            name,
+            &self.myself().into(),
+            &self.system,
+        )
+         */
+        todo!()
+    }
+
+    /// Find, or create if none exists, a channel for the given message type and name
+    fn channel<M: Message>(&self, name: &str) -> ChannelRef<M> {
+        todo!()
+    }
+}
+
 #[derive(Clone)]
 pub struct KernelRef {
     pub tx: mpsc::Sender<KernelMsg>,
@@ -151,19 +180,78 @@ pub enum KernelMsg {
     Sys(ActorSystem),
 }
 
+#[derive(Debug, Clone)]
+enum RootMessage {
+
+}
+
+impl Message for RootMessage {}
+
 /// The actor runtime and common services coordinator
 ///
 /// The `ActorSystem` provides a runtime on which actors are executed.
 /// It also provides common services such as channels and scheduling.
 pub struct ActorSystem {
     //proto: Arc<ProtoSystem>,
+    //root: ActorRef<RootMessage>, // TODO system root actor
     //sys_actors: Option<SysActors>,
     //log: LoggingSystem,
     //debug: bool,
     //pub exec: ThreadPool,
     pub timer: timer::TimerRef,
-    //pub sys_channels: Option<SysChannels>,
+    // Require this field to be Send + Sync, which all maps don't do
+    // automatically unless keys and values also implements them.
+    channels: Arc<Mutex<HashMap<String, Box<dyn Any + Send>>>>
     //pub(crate) provider: Provider,
+}
+
+
+
+impl ActorSystem {
+
+    fn actor_of<A>(&self, name: &str) -> Result<ActorRef<<A as Actor>::Msg>, () /* CreateError */>
+    where
+        A: Actor,
+    {
+        /*
+        self.system.provider.create_actor(
+            Props::new::<A>(),
+            name,
+            &self.myself().into(),
+            &self.system,
+        )
+         */
+        todo!()
+    }
+
+
+    // TODO What if Topic would need to have the messages type associated with it ?
+    // If we can do something like `const MY_TOPIC: Topic<MyMessage> = Topic("my-message");` it would be pretty dope
+    fn channel<M: Message>(&self, name: Topic<M>) -> ChannelRef<M> {
+        let mut channels = self.channels.lock().unwrap();
+        
+        match channels.get(&name.0) {
+            Some(channel) => {
+                if let Some(addr) = channel.downcast_ref::<ChannelRef<M>>() {
+                    let r = addr.clone();
+
+                    r
+                } else {
+                    panic!("The topic message type differ from the one it was registered with")
+                }
+            }
+            None => {
+                // Create channel for given type
+                // - What's the actor name ? /system/channels/type_id ?
+                let actor = self.actor_of::<Channel<M>>(&format!("channels/{}", name)).unwrap();
+                let c_ref = ChannelRef::new(actor);
+                channels.insert(name.0, Box::new(c_ref.clone()));
+                
+                c_ref
+            }
+        }
+    }
+
 }
 
 impl fmt::Debug for ActorSystem {
