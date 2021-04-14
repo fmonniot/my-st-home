@@ -7,7 +7,10 @@ use embedded_graphics::{
     style::TextStyleBuilder,
     text_style, DrawTarget,
 };
-use embedded_layout::{layout::linear::{LinearLayout, spacing::FixedMargin}, prelude::*};
+use embedded_layout::{
+    layout::linear::{spacing::FixedMargin, LinearLayout},
+    prelude::*,
+};
 use epd_waveshare::{color::*, epd7in5_v2::Display7in5, graphics::Display};
 
 use log::{debug, warn};
@@ -80,7 +83,7 @@ pub fn spawn() -> (ScreenTask, impl FnOnce() -> ()) {
         // Adding to the comment above, if I don't need rotation I think it's fine to switch
         // to DrawTarget<BinaryColor>. We'd have to re-implement clearing the buffer, but that
         // seems easy enough to do (there might be tools in embedded-graphics already).
-        // That being said, we still have to cross thread for mac so not sure if we gain much by removing 
+        // That being said, we still have to cross thread for mac so not sure if we gain much by removing
         // the concrete implementation here. Not that important as we only care about performance
         // on linux/raspberry.
         let mut display = Display7in5::default(); // display is the display buffer
@@ -147,7 +150,6 @@ fn draw_text<D: DrawTarget<BinaryColor>>(display: &mut D, text: &str, x: i32, y:
         .draw(display);
 }
 
-
 /// Frame is the representation of what is on screen.
 /// It is also a state machine and define what the next frame will be based on a [ScreenMessage]
 enum Frame {
@@ -160,14 +162,12 @@ pub const WIDTH: i32 = 800;
 pub const HEIGHT: i32 = 480;
 
 impl Frame {
-
     /// State machine to update the current state with an update message
     fn update(self, message: ScreenMessage) -> Frame {
-
         match (self, message) {
             (Frame::Calibration, _) => Frame::Calibration,
         }
-    } 
+    }
 
     /// Draw the current state onto a buffer. The buffer isn't cleared.
     fn draw<D: DrawTarget<BinaryColor>>(&self, display: &mut D) -> Result<(), D::Error> {
@@ -190,7 +190,7 @@ impl Frame {
         let mut clock = AnalogClock::new(Size::new(128, 128));
         clock.translate(Point::new(10, 10));
 
-        let calendar = CalendarEventWidget::new("New event","Thu 08 Apr", Size::new(200, 40));
+        let calendar = CalendarEventWidget::new("New event", "Thu 08 Apr", Size::new(200, 40));
 
         LinearLayout::horizontal()
             .with_spacing(FixedMargin(4))
@@ -211,7 +211,6 @@ struct CalendarEventWidget {
 }
 
 impl CalendarEventWidget {
-
     fn new(title: &str, date: &str, size: Size) -> CalendarEventWidget {
         CalendarEventWidget {
             title: title.to_string(),
@@ -245,7 +244,6 @@ impl Drawable<BinaryColor> for &CalendarEventWidget {
         // Create a 1px border
         let border = self.bounds.into_styled(border_style);
 
-
         // Create the title and dates
         let mut information = LinearLayout::vertical()
             .with_alignment(horizontal::Center)
@@ -267,17 +265,16 @@ impl Drawable<BinaryColor> for &CalendarEventWidget {
 }
 
 struct AnalogClock {
-    bounds: Rectangle
+    bounds: Rectangle,
 }
 
 impl AnalogClock {
     fn new(size: Size) -> AnalogClock {
         AnalogClock {
-            bounds: Rectangle::with_size(Point::zero(), size)
+            bounds: Rectangle::with_size(Point::zero(), size),
         }
     }
 }
-
 
 impl View for AnalogClock {
     #[inline]
@@ -293,21 +290,19 @@ impl View for AnalogClock {
 
 impl Drawable<BinaryColor> for &AnalogClock {
     fn draw<D: DrawTarget<BinaryColor>>(self, display: &mut D) -> Result<(), D::Error> {
-        println!("drawing analog clock within {:?}. bounds = {:?}", display.display_area(), self.bounds);
+        println!(
+            "drawing analog clock within {:?}. bounds = {:?}",
+            display.display_area(),
+            self.bounds
+        );
 
         let center = self.bounds.center();
 
         // TODO Find the size of the circle by looking at the min distance from center to border.
 
         // TODO Do a real calculus for those two :)
-        let long = Point::new(
-            self.bounds.top_left.x + 2,
-            center.y
-        );
-        let short = Point::new(
-            center.x + 18,
-            center.y + 16
-        );
+        let long = Point::new(self.bounds.top_left.x + 2, center.y);
+        let short = Point::new(center.x + 18, center.y + 16);
 
         // TODO Do we need to find the center point in the bounds ?
         Circle::new(center, 64)
