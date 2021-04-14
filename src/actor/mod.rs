@@ -2,55 +2,12 @@
 mod timer;
 
 use futures::channel::oneshot;
-use std::any::Any;
 use std::fmt::{self, Debug};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use timer::{ScheduleId, Timer};
 
 pub trait Message: Debug + Clone + Send + 'static {}
-
-pub struct AnyMessage {
-    pub msg: Option<Box<dyn Any + Send>>,
-    one_time: bool,
-}
-pub struct DowncastAnyMessageError;
-
-impl AnyMessage {
-    pub fn new<T>(msg: T, one_time: bool) -> Self
-    where
-        T: Any + Message,
-    {
-        Self {
-            msg: Some(Box::new(msg)),
-            one_time,
-        }
-    }
-
-    pub fn take<T>(&mut self) -> Result<T, DowncastAnyMessageError>
-    where
-        T: Any + Message,
-    {
-        if self.one_time {
-            match self.msg.take() {
-                Some(m) => {
-                    if m.is::<T>() {
-                        Ok(*m.downcast::<T>().unwrap())
-                    } else {
-                        Err(DowncastAnyMessageError)
-                    }
-                }
-                None => Err(DowncastAnyMessageError),
-            }
-        } else {
-            match self.msg.as_ref() {
-                Some(m) if m.is::<T>() => Ok(m.downcast_ref::<T>().cloned().unwrap()),
-                Some(_) => Err(DowncastAnyMessageError),
-                None => Err(DowncastAnyMessageError),
-            }
-        }
-    }
-}
 
 #[derive(Clone, Debug)]
 pub enum SystemMsg {
@@ -107,12 +64,6 @@ impl BasicActorRef {
         Msg: Message + Send,
     {
         //self.try_tell_any(&mut AnyMessage::new(msg, true))
-        todo!()
-    }
-
-    pub fn try_tell_any(&self, msg: &mut AnyMessage) // -> Result<(), AnyEnqueueError>
-    {
-        //self.cell.send_any_msg(msg)
         todo!()
     }
 }
@@ -210,7 +161,7 @@ pub struct ActorSystem {
     //log: LoggingSystem,
     //debug: bool,
     //pub exec: ThreadPool,
-    pub timer: timer::TokioTimer,
+    pub timer: timer::TimerRef,
     //pub sys_channels: Option<SysChannels>,
     //pub(crate) provider: Provider,
 }
@@ -225,8 +176,9 @@ impl fmt::Debug for ActorSystem {
     }
 }
 
+#[async_trait::async_trait]
 impl Timer for ActorSystem {
-    fn schedule<T, M>(
+    async fn schedule<T, M>(
         &self,
         initial_delay: Duration,
         interval: Duration,
@@ -237,19 +189,19 @@ impl Timer for ActorSystem {
         T: Message + Into<M>,
         M: Message,
     {
-        todo!()
+        self.timer.schedule(initial_delay, interval, receiver, msg).await
     }
 
-    fn schedule_once<T, M>(&self, delay: Duration, receiver: ActorRef<M>, msg: T) -> ScheduleId
+    async fn schedule_once<T, M>(&self, delay: Duration, receiver: ActorRef<M>, msg: T) -> ScheduleId
     where
         T: Message + Into<M>,
         M: Message,
     {
-        todo!()
+        self.timer.schedule_once(delay, receiver, msg).await
     }
 
-    fn cancel_schedule(&self, id: ScheduleId) {
-        todo!()
+    async fn cancel_schedule(&self, id: ScheduleId) -> bool {
+        self.timer.cancel_schedule(id).await
     }
 }
 
@@ -305,6 +257,7 @@ mod tests {
 
         fn pre_start(&mut self, ctx: &Context<Self::Msg>) {
             // register to a channel as a producer
+            let producer = ctx.system.channel_producer("");
             // send sensor read message
             ctx.myself.send_msg(SensorMessage::ReadRequest)
         }
