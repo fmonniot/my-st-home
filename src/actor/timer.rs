@@ -10,8 +10,8 @@ use super::{ActorRef, Message};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScheduleId(u32);
 
-// TODO If we don't want async functions (as it would be strange in actor-land)
-// then we need to remove the confirmation (reply_to)
+// TODO We do not want async functions
+// then we need to remove the confirmation (reply_to) and generate the responses ahead of time
 #[async_trait::async_trait]
 pub trait Timer {
     async fn schedule<T, M>(

@@ -1,5 +1,6 @@
 //! A very small and imperfect actor system.
 mod channel;
+mod mailbox;
 mod timer;
 
 use channel::{Channel, ChannelRef, Topic};
@@ -81,7 +82,11 @@ where
     /// Create an actor under the current actor
     ///
     /// If the actor can implement [`std::default::Default`], consider using [`ActorSystem::default_actor_of`]
-    fn actor_of<A>(&self, name: &str, actor: A) -> Result<ActorRef<<A as Actor>::Msg>, () /* CreateError */>
+    fn actor_of<A>(
+        &self,
+        name: &str,
+        actor: A,
+    ) -> Result<ActorRef<<A as Actor>::Msg>, () /* CreateError */>
     where
         A: Actor,
     {
@@ -151,11 +156,14 @@ pub struct ActorSystem {
 }
 
 impl ActorSystem {
-
     /// Create an actor under the system root
     ///
     /// If the actor can implement [`std::default::Default`], consider using [`ActorSystem::default_actor_of`]
-    fn actor_of<A>(&self, name: &str, actor: A) -> Result<ActorRef<<A as Actor>::Msg>, () /* CreateError */>
+    fn actor_of<A>(
+        &self,
+        name: &str,
+        actor: A,
+    ) -> Result<ActorRef<<A as Actor>::Msg>, () /* CreateError */>
     where
         A: Actor,
     {

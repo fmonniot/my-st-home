@@ -105,11 +105,11 @@ pub struct Channel<Msg: Message> {
 }
 
 impl<Msg: Message> Default for Channel<Msg> {
-    fn default() -> Self { 
+    fn default() -> Self {
         Channel {
-            subscriptions: HashMap::new()
+            subscriptions: HashMap::new(),
         }
-     }
+    }
 }
 
 impl<Msg> Actor for Channel<Msg>
