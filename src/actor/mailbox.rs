@@ -38,7 +38,10 @@ pub struct MailboxSender<Msg> {
 
 impl<M> MailboxSenderExt<M> for MailboxSender<M> {
     fn send(&self, msg: M) -> Result<(), SendError<M>> {
-        todo!()
+        self.sender.try_send(msg).map_err(|err| match err {
+            mpsc::error::TrySendError::Full(m) => SendError::Full(m),
+            mpsc::error::TrySendError::Closed(m) => SendError::Closed(m),
+        })
     }
 }
 
