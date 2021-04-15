@@ -4,6 +4,8 @@ mod mailbox;
 mod timer;
 
 use channel::{Channel, ChannelRef, Topic};
+use mailbox::MailboxSender;
+
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{
@@ -37,7 +39,7 @@ pub trait Message: Debug + Clone + Send + 'static {}
 #[derive(Clone)]
 pub struct ActorRef<Msg: Message> {
     path: String,
-    mailbox: mpsc::Sender<Msg>,
+    mailbox: MailboxSender<Msg>,
 }
 
 impl<Msg: Message> ActorRef<Msg> {
@@ -72,7 +74,6 @@ impl<Msg: Message> fmt::Debug for ActorRef<Msg> {
 pub struct Context<Msg: Message> {
     pub myself: ActorRef<Msg>,
     system: ActorSystem,
-    kernel: KernelRef,
 }
 
 impl<Msg> Context<Msg>
@@ -113,19 +114,6 @@ where
     fn channel<M: Message>(&self, name: Topic<M>) -> ChannelRef<M> {
         self.system.channel(name)
     }
-}
-
-#[derive(Clone)]
-pub struct KernelRef {
-    pub tx: mpsc::Sender<KernelMsg>,
-}
-
-#[derive(Debug)]
-pub enum KernelMsg {
-    TerminateActor,
-    RestartActor,
-    RunActor,
-    Sys(ActorSystem),
 }
 
 #[derive(Debug, Clone)]

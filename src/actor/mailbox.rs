@@ -10,20 +10,19 @@ pub enum SendError<T> {
     Closed(T),
 }
 
-// Use the extension convention instead ?
-// TODO struct MailboxSender + trait MailboxSenderExt
-pub trait MailboxSender<M> {
+pub trait MailboxSenderExt<M> {
     /// Attempts to send a message on this `Sender<A>` without blocking.
     fn send(&self, msg: M) -> Result<(), SendError<M>>;
 
-    fn map<M2, F1, F2>(&self, narrow: F1, widen: F2) -> MapSender<Self, M, M2, F1, F2>
+    // Consume the current sender. We could do &self with a + Clone bound too.
+    fn xmap<M2, F1, F2>(self, narrow: F1, widen: F2) -> MapSender<Self, M, M2, F1, F2>
     where
-        Self: Sized + Clone,
+        Self: Sized,
         F1: Fn(M2) -> M,
         F2: Fn(M) -> M2,
     {
         MapSender {
-            sender: self.clone(),
+            sender: self,
             narrow,
             widen,
             _m1: PhantomData,
@@ -32,11 +31,12 @@ pub trait MailboxSender<M> {
     }
 }
 
-pub struct Sender<Msg> {
+#[derive(Debug, Clone)]
+pub struct MailboxSender<Msg> {
     sender: mpsc::Sender<Msg>,
 }
 
-impl<M> MailboxSender<M> for Sender<M> {
+impl<M> MailboxSenderExt<M> for MailboxSender<M> {
     fn send(&self, msg: M) -> Result<(), SendError<M>> {
         todo!()
     }
@@ -46,7 +46,7 @@ pub struct MapSender<S, M1, M2, F1, F2>
 where
     F1: Fn(M2) -> M1,
     F2: Fn(M1) -> M2,
-    S: MailboxSender<M1>,
+    S: MailboxSenderExt<M1>,
 {
     sender: S,
     narrow: F1,
@@ -57,11 +57,11 @@ where
     _m2: PhantomData<M2>,
 }
 
-impl<S, M1, M2, F1, F2> MailboxSender<M2> for MapSender<S, M1, M2, F1, F2>
+impl<S, M1, M2, F1, F2> MailboxSenderExt<M2> for MapSender<S, M1, M2, F1, F2>
 where
     F1: Fn(M2) -> M1,
     F2: Fn(M1) -> M2,
-    S: MailboxSender<M1>,
+    S: MailboxSenderExt<M1>,
 {
     fn send(&self, msg: M2) -> Result<(), SendError<M2>> {
         let m1 = (self.narrow)(msg);
@@ -80,6 +80,6 @@ pub struct Mailbox<Msg> {
     receiver: mpsc::Receiver<Msg>,
 }
 
-pub fn mailbox<Msg>() -> (Sender<Msg>, Mailbox<Msg>) {
+pub fn mailbox<Msg>() -> (MailboxSender<Msg>, Mailbox<Msg>) {
     todo!()
 }
