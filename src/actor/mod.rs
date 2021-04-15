@@ -3,7 +3,7 @@ mod channel;
 mod timer;
 
 use channel::{Channel, ChannelRef, Topic};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{
     any::Any,
@@ -11,78 +11,9 @@ use std::{
     fmt::{self, Debug},
 };
 use timer::{ScheduleId, Timer};
+use tokio::sync::mpsc;
 
 pub trait Message: Debug + Clone + Send + 'static {}
-
-#[derive(Clone, Debug)]
-pub enum SystemMsg {
-    ActorInit,
-    Command(SystemCmd),
-    Event(SystemEvent),
-    Failed(BasicActorRef),
-}
-
-#[derive(Clone, Debug)]
-pub enum SystemCmd {
-    Stop,
-    Restart,
-}
-
-#[derive(Clone, Debug)]
-pub enum SystemEvent {
-    /// An actor was started
-    ActorCreated(BasicActorRef),
-
-    /// An actor was restarted
-    ActorRestarted(BasicActorRef),
-
-    /// An actor was terminated
-    ActorTerminated(BasicActorRef),
-}
-
-/// A lightweight, un-typed reference to interact with its underlying
-/// actor instance through concurrent messaging.
-///
-/// `BasicActorRef` can be derived from an original `ActorRef<Msg>`.
-///
-/// `BasicActorRef` allows for un-typed messaging using `try_tell`,
-/// that will return a `Result`. If the message type was not supported,
-/// the result will contain an `Error`.
-///
-/// `BasicActorRef` can be used when the original `ActorRef` isn't available,
-/// when you need to use collections to store references from different actor
-/// types, or when using actor selections to message parts of the actor hierarchy.
-///
-/// In general, it is better to use `ActorRef` where possible.
-#[derive(Clone)]
-pub struct BasicActorRef {
-    pub cell: ActorCell,
-}
-
-impl BasicActorRef {
-    /// Send a message to this actor
-    ///
-    /// Returns a result. If the message type is not supported Error is returned.
-    pub fn try_tell<Msg>(&self, msg: Msg)
-    // -> Result<(), AnyEnqueueError>
-    where
-        Msg: Message + Send,
-    {
-        //self.try_tell_any(&mut AnyMessage::new(msg, true))
-        todo!()
-    }
-}
-
-impl fmt::Debug for BasicActorRef {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "BasicActorRef[{:?}]", "self.cell.uri()")
-    }
-}
-
-#[derive(Clone)]
-pub struct ActorCell {
-    //inner: Arc<ActorCellInner>,
-}
 
 /// A lightweight, typed reference to interact with its underlying
 /// actor instance through concurrent messaging.
@@ -104,7 +35,7 @@ pub struct ActorCell {
 /// be valid.
 #[derive(Clone)]
 pub struct ActorRef<Msg: Message> {
-    cell: ActorCell,
+    path: String,
     mailbox: mpsc::Sender<Msg>,
 }
 
@@ -121,7 +52,7 @@ impl<Msg: Message> ActorRef<Msg> {
 
 impl<Msg: Message> fmt::Debug for ActorRef<Msg> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "ActorRef[{:?}]", "self.uri()")
+        write!(f, "ActorRef[{:?}]", self.path())
     }
 }
 
@@ -139,15 +70,18 @@ impl<Msg: Message> fmt::Debug for ActorRef<Msg> {
 /// it is not cloneable.
 pub struct Context<Msg: Message> {
     pub myself: ActorRef<Msg>,
-    pub system: ActorSystem,
-    pub(crate) kernel: KernelRef,
+    system: ActorSystem,
+    kernel: KernelRef,
 }
 
 impl<Msg> Context<Msg>
 where
     Msg: Message,
 {
-    fn actor_of<A>(&self, name: &str) -> Result<ActorRef<<A as Actor>::Msg>, () /* CreateError */>
+    /// Create an actor under the current actor
+    ///
+    /// If the actor can implement [`std::default::Default`], consider using [`ActorSystem::default_actor_of`]
+    fn actor_of<A>(&self, name: &str, actor: A) -> Result<ActorRef<<A as Actor>::Msg>, () /* CreateError */>
     where
         A: Actor,
     {
@@ -160,6 +94,14 @@ where
         )
          */
         todo!()
+    }
+
+    /// Create an actor under the current actor
+    fn default_actor_of<A>(&self, name: &str) -> Result<ActorRef<<A as Actor>::Msg>, ()>
+    where
+        A: Actor + Default,
+    {
+        self.actor_of(name, A::default())
     }
 
     /// Find, or create if none exists, a channel for the given message type and name
@@ -193,19 +135,27 @@ impl Message for RootMessage {}
 pub struct ActorSystem {
     //proto: Arc<ProtoSystem>,
     //root: ActorRef<RootMessage>, // TODO system root actor
-    //sys_actors: Option<SysActors>,
     //log: LoggingSystem,
     //debug: bool,
     //pub exec: ThreadPool,
     pub timer: timer::TimerRef,
     // Require this field to be Send + Sync, which all maps don't do
     // automatically unless keys and values also implements them.
+    // Unfortunately that means we can block a thread. Which isn't a good
+    // thing in a highly concurrent setup, but should be enough for this
+    // project. Especially because this lock is only taken on channel ref
+    // acquisition, which should often happens at initialization.
+    // Wait and See approach though.
     // Map of topic name to actor. TODO Does that actually make sense ?
     channels: Arc<Mutex<HashMap<String, Box<dyn Any + Send>>>>, //pub(crate) provider: Provider,
 }
 
 impl ActorSystem {
-    fn actor_of<A>(&self, name: &str) -> Result<ActorRef<<A as Actor>::Msg>, () /* CreateError */>
+
+    /// Create an actor under the system root
+    ///
+    /// If the actor can implement [`std::default::Default`], consider using [`ActorSystem::default_actor_of`]
+    fn actor_of<A>(&self, name: &str, actor: A) -> Result<ActorRef<<A as Actor>::Msg>, () /* CreateError */>
     where
         A: Actor,
     {
@@ -218,6 +168,14 @@ impl ActorSystem {
         )
          */
         todo!()
+    }
+
+    /// Create an actor under the system root
+    fn default_actor_of<A>(&self, name: &str) -> Result<ActorRef<<A as Actor>::Msg>, ()>
+    where
+        A: Actor + Default,
+    {
+        self.actor_of(name, A::default())
     }
 
     fn channel<M: Message>(&self, name: Topic<M>) -> ChannelRef<M> {
@@ -237,7 +195,7 @@ impl ActorSystem {
                 // Create channel for given type
                 // - What's the actor name ? /system/channels/type_id ?
                 let actor = self
-                    .actor_of::<Channel<M>>(&format!("channels/{}", name))
+                    .default_actor_of::<Channel<M>>(&format!("channels/{}", name))
                     .unwrap();
                 let c_ref = ChannelRef::new(actor, name.clone());
                 channels.insert(name.0, Box::new(c_ref.clone()));
@@ -294,6 +252,7 @@ impl Timer for ActorSystem {
     }
 }
 
+// TODO Once the minimum set of feature is defined, let's removed unused operations
 pub trait Actor: Send + 'static {
     type Msg: Message;
 
@@ -316,12 +275,6 @@ pub trait Actor: Send + 'static {
 
     /// Invoked after an actor has been stopped.
     fn post_stop(&mut self) {}
-
-    /// Invoked when an actor receives a system message
-    ///
-    /// It is guaranteed that only one message in the actor's mailbox is processed
-    /// at any one time, including `recv` and `sys_recv`.
-    fn sys_recv(&mut self, ctx: &Context<Self::Msg>, msg: SystemMsg) {}
 
     /// Invoked when an actor receives a message
     ///

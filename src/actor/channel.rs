@@ -99,8 +99,17 @@ impl<M: Message> Topic<M> {
     }
 }
 
+#[derive(Debug)]
 pub struct Channel<Msg: Message> {
     subscriptions: HashMap<Topic<Msg>, Vec<ActorRef<Msg>>>,
+}
+
+impl<Msg: Message> Default for Channel<Msg> {
+    fn default() -> Self { 
+        Channel {
+            subscriptions: HashMap::new()
+        }
+     }
 }
 
 impl<Msg> Actor for Channel<Msg>
