@@ -289,6 +289,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "downcast-rs"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ea835d29036a4087793836fa931b08837ad5e957da9e23886b29586fb9b6650"
+
+[[package]]
 name = "ed25519"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -875,6 +881,7 @@ dependencies = [
  "base64 0.13.0",
  "bitvec",
  "bytes",
+ "downcast-rs",
  "ed25519-dalek",
  "either",
  "embedded-graphics",

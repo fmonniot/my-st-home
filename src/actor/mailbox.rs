@@ -2,7 +2,9 @@
 //!
 //! It provides a simplified interface on the sender side with some additional
 //! features useful for the actor world.
-use std::marker::PhantomData;
+use super::{Actor, Context, Message, Receiver};
+use std::{any::Any, marker::PhantomData};
+use downcast_rs::Downcast;
 use tokio::sync::mpsc;
 
 pub enum SendError<T> {
@@ -10,79 +12,122 @@ pub enum SendError<T> {
     Closed(T),
 }
 
-pub trait MailboxSenderExt<M> {
-    /// Attempts to send a message on this `Sender<A>` without blocking.
-    fn send(&self, msg: M) -> Result<(), SendError<M>>;
+#[derive(Debug)]
+pub struct MailboxSender<A: Actor> {
+    sender: mpsc::Sender<Envelope<A>>,
+}
 
-    // Consume the current sender. We could do &self with a + Clone bound too.
-    fn xmap<M2, F1, F2>(self, narrow: F1, widen: F2) -> MapSender<Self, M, M2, F1, F2>
+impl<A: Actor> MailboxSender<A> {
+    pub(super) fn send<M>(&self, msg: M) -> Result<(), SendError<M>>
     where
-        Self: Sized,
-        F1: Fn(M2) -> M,
-        F2: Fn(M) -> M2,
+        A: Receiver<M>,
+        M: Message,
     {
-        MapSender {
-            sender: self,
-            narrow,
-            widen,
-            _m1: PhantomData,
-            _m2: PhantomData,
+        // The error cases is a bit complex. Envelope is designed to hide the message
+        // type, that's how we actually manage to have the dissocation between Actors
+        // and Receivers. But because in the error case we want to return the actual
+        // message, we need a way to extract it from the Envelope. We do so by having
+        // the InnerEnvelope implements the Downcast trait and then do a downcast on
+        // it. And because there is only one implementation, which we know but not the
+        // compiler, we panic on another type than the one we expect. Note that it
+        // wouldn't be safe in InnerEnvelope was public, because we wouldn't control
+        // what can actually implement it.
+        let envelope = Envelope(Box::new(MessageEnvelope { message: msg }));
+        self.sender.try_send(envelope).map_err(|err| match err {
+            mpsc::error::TrySendError::Full(m) => {
+                let b: Box<dyn InnerEnvelope<A>> = m.0;
+
+                match b.downcast::<MessageEnvelope<M>>() {
+                    Ok(m) => {
+                        SendError::Full((*m).message)
+                    },
+                    Err(_) => panic!("Unexpected downcast"),
+                }
+            },
+            mpsc::error::TrySendError::Closed(m) => {
+                let b: Box<dyn InnerEnvelope<A>> = m.0;
+
+                match b.downcast::<MessageEnvelope<M>>() {
+                    Ok(m) => {
+                        SendError::Closed((*m).message)
+                    },
+                    Err(_) => panic!("Unexpected downcast"),
+                }
+            },
+        })
+    }
+}
+
+// Manually implementing Clone because we don't want the transitive Clone dependency on A
+impl<A: Actor> Clone for MailboxSender<A> {
+    fn clone(&self) -> Self {
+        MailboxSender {
+            sender: self.sender.clone()
         }
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct MailboxSender<Msg> {
-    sender: mpsc::Sender<Msg>,
-}
-
-impl<M> MailboxSenderExt<M> for MailboxSender<M> {
-    fn send(&self, msg: M) -> Result<(), SendError<M>> {
-        self.sender.try_send(msg).map_err(|err| match err {
-            mpsc::error::TrySendError::Full(m) => SendError::Full(m),
-            mpsc::error::TrySendError::Closed(m) => SendError::Closed(m),
-        })
-    }
-}
-
-pub struct MapSender<S, M1, M2, F1, F2>
-where
-    F1: Fn(M2) -> M1,
-    F2: Fn(M1) -> M2,
-    S: MailboxSenderExt<M1>,
-{
-    sender: S,
-    narrow: F1,
-    widen: F2,
-    // And because apparently rust don't understand that M1 and M2 are used
-    // in F1 and F2 respectively, we have to make the compiler happy somehow.
-    _m1: PhantomData<M1>,
-    _m2: PhantomData<M2>,
-}
-
-impl<S, M1, M2, F1, F2> MailboxSenderExt<M2> for MapSender<S, M1, M2, F1, F2>
-where
-    F1: Fn(M2) -> M1,
-    F2: Fn(M1) -> M2,
-    S: MailboxSenderExt<M1>,
-{
-    fn send(&self, msg: M2) -> Result<(), SendError<M2>> {
-        let m1 = (self.narrow)(msg);
-        let result: Result<(), SendError<M1>> = self.sender.send(m1);
-        let widen = &self.widen;
-
-        result.map_err(|e| match e {
-            SendError::Closed(m1) => SendError::Closed(widen(m1)),
-            SendError::Full(m1) => SendError::Full(widen(m1)),
-        })
-    }
-}
-
 /// Receiver end of a mailbox. Owned by the actor system.
-pub struct Mailbox<Msg> {
-    receiver: mpsc::Receiver<Msg>,
+pub struct Mailbox<A: Actor> {
+    receiver: mpsc::Receiver<Envelope<A>>,
 }
 
-pub fn mailbox<Msg>() -> (MailboxSender<Msg>, Mailbox<Msg>) {
-    todo!()
+impl<A: Actor> Mailbox<A> {
+    pub(super) async fn recv(&mut self) -> Option<Envelope<A>> {
+        self.receiver.recv().await
+    }
+}
+
+// TODO implement Stream for mailbox ?
+
+pub fn mailbox<A: Actor>() -> (MailboxSender<A>, Mailbox<A>) {
+    let (sender, receiver) = mpsc::channel(50); // TODO Config
+
+    let sender = MailboxSender { sender };
+    let mailbox = Mailbox { receiver };
+
+    (sender, mailbox)
+}
+
+/// An Envelope encapsulate all messages an actor can receive.
+pub struct Envelope<A: Actor>(Box<dyn InnerEnvelope<A> + Send>);
+
+impl<A: Actor> Envelope<A> {
+    pub fn new<M>(message: M) -> Self
+    where
+        A: Receiver<M>,
+        M: Message,
+    {
+        Envelope(Box::new(MessageEnvelope { message }))
+    }
+}
+
+/// InnerEnvelope is a trait to let us hide the message type.
+///
+/// Underthehood this use dynamic dispatch to do this magic. Plus careful
+/// proof that a message M can be received by an actor A (type bounds).
+trait InnerEnvelope<A: Actor>: Downcast {
+    fn process_message(self, ctx: &Context<A>, act: &mut A);
+
+    fn as_any(&self) -> &dyn Any;
+}
+downcast_rs::impl_downcast!(InnerEnvelope<A> where A: Actor);
+//impl_downcast!(TraitGeneric3<T> assoc H where T: Copy, H: Clone);
+
+struct MessageEnvelope<M> {
+    message: M,
+}
+
+impl<A, M> InnerEnvelope<A> for MessageEnvelope<M>
+where
+    M: Message,
+    A: Actor + Receiver<M>,
+{
+    fn process_message(self, ctx: &Context<A>, act: &mut A) {
+        <A as Receiver<M>>::recv(act, ctx, self.message);
+    }
+    
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }

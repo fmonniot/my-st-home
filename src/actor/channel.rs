@@ -1,23 +1,28 @@
 //! A specialized actor for providing Publish/Subscribe capabilities.
 //!
 
-use super::{Actor, ActorRef, Context, Message};
+use super::{Actor, ActorRef, Context, Message, Receiver};
 use std::{
     any::{Any, TypeId},
     collections::HashMap,
     marker::PhantomData,
 };
+use futures::channel::mpsc;
 use tokio::sync::oneshot;
 
 #[derive(Debug, Clone)]
-pub struct ChannelRef<Msg: Message>(ActorRef<ChannelMsg<Msg>>, Topic<Msg>);
+pub struct ChannelRef<M, A>(ActorRef<A>, Topic<M>);
 
-impl<Msg: Message> ChannelRef<Msg> {
-    pub(super) fn new(r: ActorRef<ChannelMsg<Msg>>, topic: Topic<Msg>) -> ChannelRef<Msg> {
+impl<M, A> ChannelRef<M, A>
+where
+    M: Message,
+    A: Receiver<M>
+{
+    pub(super) fn new(r: ActorRef<A>, topic: Topic<M>) -> ChannelRef<M, A> {
         ChannelRef(r, topic)
     }
 
-    pub fn publish(&self, msg: Msg) {
+    pub fn publish(&self, msg: M) {
         self.0.send_msg(ChannelMsg::Publish {
             topic: self.1.clone(),
             msg,
@@ -26,36 +31,36 @@ impl<Msg: Message> ChannelRef<Msg> {
 }
 
 #[derive(Debug, Clone)]
-pub enum ChannelMsg<Msg: Message> {
+pub enum ChannelMsg<M: Message, A> {
     /// Publish message
     Publish {
-        topic: Topic<Msg>,
-        msg: Msg,
+        topic: Topic<M>,
+        msg: M,
     },
 
     /// Subscribe given `ActorRef` to a topic on a channel
     Subscribe {
-        topic: Topic<Msg>,
-        actor: ActorRef<Msg>,
+        topic: Topic<M>,
+        actor: ActorRef<A>,
     },
 
     // Unsubscribe the given `ActorRef` from a topic on a channel
     Unsubscribe {
-        topic: Topic<Msg>,
-        actor: ActorRef<Msg>,
+        topic: Topic<M>,
+        actor: ActorRef<A>,
     },
 
     // Unsubscribe the given `ActorRef` from all topics on a channel
     UnsubscribeAll {
-        actor: ActorRef<Msg>,
+        actor: ActorRef<A>,
     },
 }
 
-impl<Msg: Message> Message for ChannelMsg<Msg> {}
+impl<M: Message, A> Message for ChannelMsg<M, A> {}
 
 // To be able to create the topic name as `const`. Let's see if that's a
 // useful pattern or not really.
-pub struct StaticTopic<Msg>(&'static str, std::marker::PhantomData<Msg>);
+pub struct StaticTopic<M>(&'static str, std::marker::PhantomData<M>);
 
 impl<M> StaticTopic<M> {
     pub const fn new(name: &'static str) -> StaticTopic<M> {
@@ -72,7 +77,7 @@ impl<M: Message> Into<Topic<M>> for StaticTopic<M> {
 /// Topics allow channel subscribers to filter messages by interest
 /// When publishing a message to a channel a Topic is provided.
 #[derive(Clone, Debug)]
-pub struct Topic<Msg: Message>(pub(super) String, std::marker::PhantomData<Msg>);
+pub struct Topic<M: Message>(pub(super) String, std::marker::PhantomData<M>);
 
 impl<M: Message> std::fmt::Display for Topic<M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -100,11 +105,11 @@ impl<M: Message> Topic<M> {
 }
 
 #[derive(Debug)]
-pub struct Channel<Msg: Message> {
-    subscriptions: HashMap<Topic<Msg>, Vec<ActorRef<Msg>>>,
+pub struct Channel<M: Message> {
+    subscriptions: HashMap<Topic<M>, Vec<ActorRef<M>>>,
 }
 
-impl<Msg: Message> Default for Channel<Msg> {
+impl<M: Message> Default for Channel<M> {
     fn default() -> Self {
         Channel {
             subscriptions: HashMap::new(),
@@ -112,13 +117,14 @@ impl<Msg: Message> Default for Channel<Msg> {
     }
 }
 
-impl<Msg> Actor for Channel<Msg>
-where
-    Msg: Message,
+impl<M> Actor for Channel<M> where M: Message,
 {
-    type Msg = ChannelMsg<Msg>;
 
-    fn recv(&mut self, ctx: &Context<Self::Msg>, msg: Self::Msg) {
+    // todo sys_recv and unsubscribe everyone
+}
+
+impl<M, A> Receiver<ChannelMsg<M, A>> for Channel<M> where M: Message, A: Actor + Receiver<M> {
+    fn recv(&mut self, ctx: &Context<Self>, msg: ChannelMsg<M>) {
         match msg {
             ChannelMsg::Publish { topic, msg } => {
                 if let Some(actors) = self.subscriptions.get(&topic) {
@@ -146,15 +152,18 @@ where
             }
         }
     }
-
-    // todo sys_recv and unsubscribe everyone
 }
 
-fn unsubscribe<Msg: Message>(
-    subscriptions: &mut HashMap<Topic<Msg>, Vec<ActorRef<Msg>>>,
-    topic: &Topic<Msg>,
-    actor: &ActorRef<Msg>,
-) {
+fn unsubscribe<A, M>(
+    subscriptions: &mut HashMap<Topic<M>, Vec<ActorRef<M>>>,
+    topic: &Topic<M>,
+    actor: &ActorRef<M>,
+)
+where
+    A: Actor,
+    M: Message,
+    A: Receiver<M>,
+{
     if let Some(actors) = subscriptions.get_mut(topic) {
         let p = actors.iter().position(|a| a.path() == actor.path());
         if let Some(index) = p {

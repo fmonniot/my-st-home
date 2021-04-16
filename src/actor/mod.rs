@@ -1,17 +1,20 @@
 //! A very small and imperfect actor system.
-mod channel;
+//mod channel;
 mod mailbox;
 mod timer;
 
-use channel::{Channel, ChannelRef, Topic};
+//use channel::{Channel, ChannelRef, Topic};
 use mailbox::MailboxSender;
 
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{
     any::Any,
     collections::HashMap,
     fmt::{self, Debug},
+};
+use std::{
+    any::TypeId,
+    sync::{Arc, Mutex},
 };
 use timer::{ScheduleId, Timer};
 use tokio::sync::mpsc;
@@ -36,16 +39,22 @@ pub trait Message: Debug + Clone + Send + 'static {}
 ///
 /// If an actor is restarted all existing references continue to
 /// be valid.
-#[derive(Clone)]
-pub struct ActorRef<Msg: Message> {
+pub struct ActorRef<A: Actor> {
     path: String,
-    mailbox: MailboxSender<Msg>,
+    mailbox: MailboxSender<A>,
 }
 
-impl<Msg: Message> ActorRef<Msg> {
-    pub fn send_msg(&self, msg: Msg) {
-        // consume the result (we don't return it to user)
-        //let _ = self.cell.send_msg(msg);
+impl<A: Actor> ActorRef<A> {
+    /// Sends a message unconditionally, ignoring any potential errors.
+    ///
+    /// The message is always queued, even if the mailbox for the receiver is full.
+    /// If the mailbox is closed, the message is silently dropped.
+    pub fn send_msg<M>(&self, msg: M)
+    where
+        M: Message,
+        A: Receiver<M>,
+    {
+        let _ = self.mailbox.send(msg);
     }
 
     pub fn path(&self) -> &str {
@@ -53,9 +62,18 @@ impl<Msg: Message> ActorRef<Msg> {
     }
 }
 
-impl<Msg: Message> fmt::Debug for ActorRef<Msg> {
+impl<A: Actor> fmt::Debug for ActorRef<A> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ActorRef[{:?}]", self.path())
+    }
+}
+// Manually implementing Clone because we don't want the transitive Clone dependency on A
+impl<A: Actor> Clone for ActorRef<A> {
+    fn clone(&self) -> Self {
+        ActorRef {
+            path: self.path.clone(),
+            mailbox: self.mailbox.clone(),
+        }
     }
 }
 
@@ -71,25 +89,21 @@ impl<Msg: Message> fmt::Debug for ActorRef<Msg> {
 ///
 /// Since `Context` is specific to an actor and its functions
 /// it is not cloneable.
-pub struct Context<Msg: Message> {
-    pub myself: ActorRef<Msg>,
+pub struct Context<A: Actor> {
+    pub myself: ActorRef<A>,
     system: ActorSystem,
 }
 
-impl<Msg> Context<Msg>
+impl<A> Context<A>
 where
-    Msg: Message,
+    A: Actor,
 {
     /// Create an actor under the current actor
     ///
     /// If the actor can implement [`std::default::Default`], consider using [`ActorSystem::default_actor_of`]
-    fn actor_of<A>(
-        &self,
-        name: &str,
-        actor: A,
-    ) -> Result<ActorRef<<A as Actor>::Msg>, () /* CreateError */>
+    fn actor_of<A2>(&self, name: &str, actor: A2) -> Result<ActorRef<A2>, () /* CreateError */>
     where
-        A: Actor,
+        A2: Actor,
     {
         /*
         self.system.provider.create_actor(
@@ -103,17 +117,23 @@ where
     }
 
     /// Create an actor under the current actor
-    fn default_actor_of<A>(&self, name: &str) -> Result<ActorRef<<A as Actor>::Msg>, ()>
+    fn default_actor_of<A2>(&self, name: &str) -> Result<ActorRef<A2>, ()>
     where
-        A: Actor + Default,
+        A2: Actor + Default,
     {
-        self.actor_of(name, A::default())
+        self.actor_of(name, A2::default())
     }
 
-    /// Find, or create if none exists, a channel for the given message type and name
+    fn find_actor<A2: Actor>(&self, name: &str) -> Option<ActorRef<A2>> {
+        self.system.find_actor(name)
+    }
+
+    // Find, or create if none exists, a channel for the given message type and name
+    /*
     fn channel<M: Message>(&self, name: Topic<M>) -> ChannelRef<M> {
         self.system.channel(name)
     }
+    */
 }
 
 #[derive(Debug, Clone)]
@@ -140,18 +160,21 @@ pub struct ActorSystem {
     // acquisition, which should often happens at initialization.
     // Wait and See approach though.
     // Map of topic name to actor. TODO Does that actually make sense ?
-    channels: Arc<Mutex<HashMap<String, Box<dyn Any + Send>>>>, //pub(crate) provider: Provider,
+    //channels: Arc<Mutex<HashMap<String, Box<dyn Any + Send>>>>,
+    registered: Arc<Mutex<HashMap<String, Box<dyn Any + Send>>>>,
+    //pub(crate) provider: Provider,
 }
 
 impl ActorSystem {
+
+    fn new() -> ActorSystem {
+        todo!()
+    }
+
     /// Create an actor under the system root
     ///
     /// If the actor can implement [`std::default::Default`], consider using [`ActorSystem::default_actor_of`]
-    fn actor_of<A>(
-        &self,
-        name: &str,
-        actor: A,
-    ) -> Result<ActorRef<<A as Actor>::Msg>, () /* CreateError */>
+    fn actor_of<A>(&self, name: &str, actor: A) -> Result<ActorRef<A>, () /* CreateError */>
     where
         A: Actor,
     {
@@ -167,13 +190,25 @@ impl ActorSystem {
     }
 
     /// Create an actor under the system root
-    fn default_actor_of<A>(&self, name: &str) -> Result<ActorRef<<A as Actor>::Msg>, ()>
+    fn default_actor_of<A>(&self, name: &str) -> Result<ActorRef<A>, ()>
     where
         A: Actor + Default,
     {
         self.actor_of(name, A::default())
     }
 
+    // TODO Should use type of messages instead
+    fn find_actor<A2: Actor>(&self, name: &str) -> Option<ActorRef<A2>> {
+        // registered: Arc<Mutex<HashMap<String, Box<(TypeId, dyn Any + Send)>>>>,
+        let registered = self.registered.lock().unwrap();
+
+        registered
+            .get(name)
+            .and_then(|any| any.downcast_ref::<ActorRef<A2>>())
+            .cloned()
+    }
+
+    /*
     fn channel<M: Message>(&self, name: Topic<M>) -> ChannelRef<M> {
         let mut channels = self.channels.lock().unwrap();
 
@@ -200,6 +235,7 @@ impl ActorSystem {
             }
         }
     }
+    */
 }
 
 impl fmt::Debug for ActorSystem {
@@ -214,15 +250,15 @@ impl fmt::Debug for ActorSystem {
 
 #[async_trait::async_trait]
 impl Timer for ActorSystem {
-    async fn schedule<T, M>(
+    async fn schedule<A, M>(
         &self,
         initial_delay: Duration,
         interval: Duration,
-        receiver: ActorRef<M>,
-        msg: T,
+        receiver: ActorRef<A>,
+        msg: M,
     ) -> ScheduleId
     where
-        T: Message + Into<M>,
+        A: Receiver<M>,
         M: Message,
     {
         self.timer
@@ -230,14 +266,14 @@ impl Timer for ActorSystem {
             .await
     }
 
-    async fn schedule_once<T, M>(
+    async fn schedule_once<A, M>(
         &self,
         delay: Duration,
-        receiver: ActorRef<M>,
-        msg: T,
+        receiver: ActorRef<A>,
+        msg: M,
     ) -> ScheduleId
     where
-        T: Message + Into<M>,
+        A: Receiver<M>,
         M: Message,
     {
         self.timer.schedule_once(delay, receiver, msg).await
@@ -248,10 +284,12 @@ impl Timer for ActorSystem {
     }
 }
 
-// TODO Once the minimum set of feature is defined, let's removed unused operations
-pub trait Actor: Send + 'static {
-    type Msg: Message;
-
+/// Actors are objects which encapsulate state and behavior.
+///
+/// This trait only manage an actor lifecycle events. To be
+/// able to receive messages, the [`Receiver`] trait needs
+/// to be implemented for each message type.
+pub trait Actor: Sized + Send + 'static {
     /// Invoked when an actor is being started by the system.
     ///
     /// Any initialization inherent to the actor's role should be
@@ -259,7 +297,7 @@ pub trait Actor: Send + 'static {
     ///
     /// Panics in `pre_start` do not invoke the
     /// supervision strategy and the actor will be terminated.
-    fn pre_start(&mut self, ctx: &Context<Self::Msg>) {}
+    fn pre_start(&mut self, ctx: &Context<Self>) {}
 
     /// Invoked after an actor has started.
     ///
@@ -267,28 +305,44 @@ pub trait Actor: Send + 'static {
     /// to a log file, emmitting metrics.
     ///
     /// Panics in `post_start` follow the supervision strategy.
-    fn post_start(&mut self, ctx: &Context<Self::Msg>) {}
+    fn post_start(&mut self, ctx: &Context<Self>) {}
 
     /// Invoked after an actor has been stopped.
     fn post_stop(&mut self) {}
+}
 
+/// Describes how to handle messages of a specific type.
+///
+/// Implementing `Handler` is a general way to handle incoming
+/// messages, streams, and futures.
+///
+/// The type `M` is a message which can be handled by the actor.
+pub trait Receiver<M>
+where
+    Self: Actor,
+    M: Message,
+{
     /// Invoked when an actor receives a message
     ///
     /// It is guaranteed that only one message in the actor's mailbox is processed
     /// at any one time, including `recv` and `sys_recv`.
-    fn recv(&mut self, ctx: &Context<Self::Msg>, msg: Self::Msg);
+    fn recv(&mut self, ctx: &Context<Self>, msg: M);
 }
 
-#[cfg(test)]
+// Reenable tests once we get entry point in the project (unused warnings)
+//#[cfg(test)]
 mod tests {
     use super::*;
-    use channel::StaticTopic;
 
-    const SENSOR_MEASUREMENT_TOPIC: StaticTopic<u32> = StaticTopic::new("sensors");
+    const SENSOR_MEASUREMENT: &'static str = "sensors";
 
+    #[derive(Debug, Default)]
     struct Sensors {
-        channel: Option<ChannelRef<u32>>, // type is probably wrong
+        channel: Option<ActorRef<Sensors>>, // type is probably wrong
     }
+
+    #[derive(Debug, Clone)]
+    struct BroadcastedSensorRead(u32);
 
     #[derive(Debug, Clone)]
     enum SensorMessage {
@@ -296,28 +350,30 @@ mod tests {
     }
 
     impl Message for SensorMessage {}
-    impl Message for u32 {}
+    impl Message for BroadcastedSensorRead {}
 
     impl Actor for Sensors {
-        type Msg = SensorMessage;
 
-        fn pre_start(&mut self, ctx: &Context<Self::Msg>) {
+        fn pre_start(&mut self, ctx: &Context<Self>) {
             // register to a channel as a producer
-            self.channel = Some(ctx.channel(SENSOR_MEASUREMENT_TOPIC.into()));
+            self.channel = ctx.find_actor(SENSOR_MEASUREMENT);
 
             // send sensor read message
             ctx.myself.send_msg(SensorMessage::ReadRequest)
         }
+    }
 
-        fn recv(&mut self, ctx: &Context<Self::Msg>, msg: Self::Msg) {
+    impl Receiver<SensorMessage> for Sensors {
+        fn recv(&mut self, ctx: &Context<Self>, msg: SensorMessage) {
             match msg {
                 SensorMessage::ReadRequest => {
-                    let read = self.read();
-                    if let Some(channel) = &self.channel {
-                        channel.publish(read);
+                    let _value = self.read();
+                    if let Some(_channel) = &self.channel {
+                        // TODO
+                        //channel.publish(BroadcastedSensorRead(value));
                     }
                     let delay = Duration::from_secs(5);
-                    ctx.system
+                    let _ = ctx.system
                         .schedule_once(delay, ctx.myself.clone(), SensorMessage::ReadRequest);
                 }
             }
@@ -330,8 +386,11 @@ mod tests {
         }
     }
 
-    #[test]
+    #[allow(dead_code)]
+    //#[test]
     fn testing_my_use_case() {
-        //let system = ActorSystem::new().unwrap();
+        let system = ActorSystem::new();
+
+        let _actor = system.default_actor_of::<Sensors>("name");
     }
 }

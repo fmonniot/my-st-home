@@ -5,7 +5,7 @@ use tokio::{
     time::Instant,
 };
 
-use super::{ActorRef, Message};
+use super::{ActorRef, Message, Receiver};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScheduleId(u32);
@@ -14,25 +14,25 @@ pub struct ScheduleId(u32);
 // then we need to remove the confirmation (reply_to) and generate the responses ahead of time
 #[async_trait::async_trait]
 pub trait Timer {
-    async fn schedule<T, M>(
+    async fn schedule<A, M>(
         &self,
         initial_delay: Duration,
         interval: Duration,
-        receiver: ActorRef<M>,
-        msg: T,
+        receiver: ActorRef<A>,
+        msg: M,
     ) -> ScheduleId
     where
-        T: Message + Into<M>,
+        A: Receiver<M>,
         M: Message;
 
-    async fn schedule_once<T, M>(
+    async fn schedule_once<A, M>(
         &self,
         delay: Duration,
-        receiver: ActorRef<M>,
-        msg: T,
+        receiver: ActorRef<A>,
+        msg: M,
     ) -> ScheduleId
     where
-        T: Message + Into<M>,
+        A: Receiver<M>,
         M: Message;
 
     async fn cancel_schedule(&self, id: ScheduleId) -> bool;
@@ -121,18 +121,17 @@ pub struct TimerRef(mpsc::Sender<Job>);
 
 #[async_trait::async_trait]
 impl Timer for TimerRef {
-    async fn schedule<T, M>(
+    async fn schedule<A, M>(
         &self,
         initial_delay: Duration,
         interval: Duration,
-        receiver: ActorRef<M>,
-        msg: T,
+        receiver: ActorRef<A>,
+        msg: M,
     ) -> ScheduleId
     where
-        T: Message + Into<M>,
+        A: Receiver<M>,
         M: Message,
     {
-        let msg = msg.into();
         let (tx, rx) = oneshot::channel();
         let job = Job::Interval {
             initial_delay,
@@ -148,14 +147,14 @@ impl Timer for TimerRef {
         rx.await.unwrap() // todo error
     }
 
-    async fn schedule_once<T, M>(
+    async fn schedule_once<A, M>(
         &self,
         delay: Duration,
-        receiver: ActorRef<M>,
-        msg: T,
+        receiver: ActorRef<A>,
+        msg: M,
     ) -> ScheduleId
     where
-        T: Message + Into<M>,
+        A: Receiver<M>,
         M: Message,
     {
         todo!()
