@@ -3,21 +3,18 @@
 mod mailbox;
 mod timer;
 
+use log::trace;
 //use channel::{Channel, ChannelRef, Topic};
 use mailbox::MailboxSender;
 
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{
     any::Any,
     collections::HashMap,
     fmt::{self, Debug},
 };
-use std::{
-    any::TypeId,
-    sync::{Arc, Mutex},
-};
 use timer::{ScheduleId, Timer};
-use tokio::sync::mpsc;
 
 pub trait Message: Debug + Clone + Send + 'static {}
 
@@ -101,23 +98,15 @@ where
     /// Create an actor under the current actor
     ///
     /// If the actor can implement [`std::default::Default`], consider using [`ActorSystem::default_actor_of`]
-    fn actor_of<A2>(&self, name: &str, actor: A2) -> Result<ActorRef<A2>, () /* CreateError */>
+    pub fn actor_of<A2>(&self, name: &str, actor: A2) -> Result<ActorRef<A2>, CreateError>
     where
         A2: Actor,
     {
-        /*
-        self.system.provider.create_actor(
-            Props::new::<A>(),
-            name,
-            &self.myself().into(),
-            &self.system,
-        )
-         */
-        todo!()
+        self.system.actor_of(name, actor)
     }
 
     /// Create an actor under the current actor
-    fn default_actor_of<A2>(&self, name: &str) -> Result<ActorRef<A2>, ()>
+    pub fn default_actor_of<A2>(&self, name: &str) -> Result<ActorRef<A2>, CreateError>
     where
         A2: Actor + Default,
     {
@@ -145,12 +134,11 @@ impl Message for RootMessage {}
 ///
 /// The `ActorSystem` provides a runtime on which actors are executed.
 /// It also provides common services such as channels and scheduling.
+#[derive(Clone)]
 pub struct ActorSystem {
     //proto: Arc<ProtoSystem>,
     //root: ActorRef<RootMessage>, // TODO system root actor
-    //log: LoggingSystem,
     //debug: bool,
-    //pub exec: ThreadPool,
     pub timer: timer::TimerRef,
     // Require this field to be Send + Sync, which all maps don't do
     // automatically unless keys and values also implements them.
@@ -159,38 +147,86 @@ pub struct ActorSystem {
     // project. Especially because this lock is only taken on channel ref
     // acquisition, which should often happens at initialization.
     // Wait and See approach though.
-    // Map of topic name to actor. TODO Does that actually make sense ?
-    //channels: Arc<Mutex<HashMap<String, Box<dyn Any + Send>>>>,
-    registered: Arc<Mutex<HashMap<String, Box<dyn Any + Send>>>>,
+    // Map of topic name to ActorRef.
+    actors: Arc<Mutex<HashMap<String, Box<dyn Any + Send>>>>,
     //pub(crate) provider: Provider,
 }
 
-impl ActorSystem {
+/// Error type when an actor fails to start during `actor_of`.
+#[derive(Debug)]
+pub enum CreateError {
+    AlreadyExists(String),
+}
 
-    fn new() -> ActorSystem {
-        todo!()
+impl ActorSystem {
+    pub fn new() -> ActorSystem {
+        let timer = timer::TokioTimer::new();
+        let actors = Arc::new(Mutex::new(HashMap::new()));
+
+        ActorSystem { timer, actors }
     }
 
     /// Create an actor under the system root
     ///
     /// If the actor can implement [`std::default::Default`], consider using [`ActorSystem::default_actor_of`]
-    fn actor_of<A>(&self, name: &str, actor: A) -> Result<ActorRef<A>, () /* CreateError */>
+    pub fn actor_of<A, S>(&self, name: S, actor: A) -> Result<ActorRef<A>, CreateError>
     where
         A: Actor,
+        S: Into<String>,
     {
-        /*
-        self.system.provider.create_actor(
-            Props::new::<A>(),
-            name,
-            &self.myself().into(),
-            &self.system,
-        )
-         */
-        todo!()
+        let name = name.into();
+        let mut actors = self.actors.lock().unwrap();
+
+        let entry = actors.entry(name);
+        let path = entry.key().clone();
+
+        // Check if the actor doesn't already exists
+        match entry {
+            std::collections::hash_map::Entry::Occupied(_) => {
+                return Err(CreateError::AlreadyExists(path))
+            }
+            _ => (),
+        };
+
+        let (sender, rx) = mailbox::mailbox();
+        let addr = ActorRef {
+            path: path.clone(),
+            mailbox: sender,
+        };
+
+        let context = Context {
+            myself: addr.clone(),
+            system: self.clone(),
+        };
+        let mut actor = actor;
+
+        actor.pre_start(&context);
+
+        // create the fiber
+        // TODO Do we want to keep track of the JoinHandle ?
+        // TODO We might need some kind of system side channel, to be able to terminate actors for example
+        // TODO This is also where we might want some kind of supervision
+        let _handle = tokio::spawn(async move {
+            // Those assignment aren't strictly needed, but they make it easier to see what
+            // was moved inside the actor run loop.
+            let path = path;
+            let mut mailbox = rx;
+            let mut actor = actor;
+            let context = context;
+
+            while let Some(mut envelope) = mailbox.recv().await {
+                envelope.process_message(&context, &mut actor);
+            }
+
+            actor.post_stop();
+            trace!("Actor {} has stopped", path)
+        });
+
+        Ok(addr)
     }
 
     /// Create an actor under the system root
-    fn default_actor_of<A>(&self, name: &str) -> Result<ActorRef<A>, ()>
+    pub fn default_actor_of<A>(&self, name: &str) -> Result<ActorRef<A>, CreateError>
     where
         A: Actor + Default,
     {
@@ -198,11 +234,11 @@ impl ActorSystem {
     }
 
     // TODO Should use type of messages instead
-    fn find_actor<A2: Actor>(&self, name: &str) -> Option<ActorRef<A2>> {
+    pub fn find_actor<A2: Actor>(&self, name: &str) -> Option<ActorRef<A2>> {
         // registered: Arc<Mutex<HashMap<String, Box<(TypeId, dyn Any + Send)>>>>,
-        let registered = self.registered.lock().unwrap();
+        let actors = self.actors.lock().unwrap();
 
-        registered
+        actors
             .get(name)
             .and_then(|any| any.downcast_ref::<ActorRef<A2>>())
             .cloned()
@@ -299,14 +335,6 @@ pub trait Actor: Sized + Send + 'static {
     /// supervision strategy and the actor will be terminated.
     fn pre_start(&mut self, ctx: &Context<Self>) {}
 
-    /// Invoked after an actor has started.
-    ///
-    /// Any post initialization can be performed here, such as writing
-    /// to a log file, emmitting metrics.
-    ///
-    /// Panics in `post_start` follow the supervision strategy.
-    fn post_start(&mut self, ctx: &Context<Self>) {}
-
     /// Invoked after an actor has been stopped.
     fn post_stop(&mut self) {}
 }
@@ -353,7 +381,6 @@ mod tests {
     impl Message for BroadcastedSensorRead {}
 
     impl Actor for Sensors {
-
         fn pre_start(&mut self, ctx: &Context<Self>) {
             // register to a channel as a producer
             self.channel = ctx.find_actor(SENSOR_MEASUREMENT);
@@ -373,8 +400,11 @@ mod tests {
                         //channel.publish(BroadcastedSensorRead(value));
                     }
                     let delay = Duration::from_secs(5);
-                    let _ = ctx.system
-                        .schedule_once(delay, ctx.myself.clone(), SensorMessage::ReadRequest);
+                    let _ = ctx.system.schedule_once(
+                        delay,
+                        ctx.myself.clone(),
+                        SensorMessage::ReadRequest,
+                    );
                 }
             }
         }

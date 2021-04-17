@@ -3,7 +3,6 @@
 //! It provides a simplified interface on the sender side with some additional
 //! features useful for the actor world.
 use super::{Actor, Context, Message, Receiver};
-use std::{any::Any, marker::PhantomData};
 use downcast_rs::Downcast;
 use tokio::sync::mpsc;
 
@@ -32,28 +31,24 @@ impl<A: Actor> MailboxSender<A> {
         // compiler, we panic on another type than the one we expect. Note that it
         // wouldn't be safe in InnerEnvelope was public, because we wouldn't control
         // what can actually implement it.
-        let envelope = Envelope(Box::new(MessageEnvelope { message: msg }));
+        let envelope = Envelope::new(msg);
         self.sender.try_send(envelope).map_err(|err| match err {
             mpsc::error::TrySendError::Full(m) => {
                 let b: Box<dyn InnerEnvelope<A>> = m.0;
 
                 match b.downcast::<MessageEnvelope<M>>() {
-                    Ok(m) => {
-                        SendError::Full((*m).message)
-                    },
+                    Ok(m) => SendError::Full((*m).message.unwrap()),
                     Err(_) => panic!("Unexpected downcast"),
                 }
-            },
+            }
             mpsc::error::TrySendError::Closed(m) => {
                 let b: Box<dyn InnerEnvelope<A>> = m.0;
 
                 match b.downcast::<MessageEnvelope<M>>() {
-                    Ok(m) => {
-                        SendError::Closed((*m).message)
-                    },
+                    Ok(m) => SendError::Closed((*m).message.unwrap()),
                     Err(_) => panic!("Unexpected downcast"),
                 }
-            },
+            }
         })
     }
 }
@@ -62,7 +57,7 @@ impl<A: Actor> MailboxSender<A> {
 impl<A: Actor> Clone for MailboxSender<A> {
     fn clone(&self) -> Self {
         MailboxSender {
-            sender: self.sender.clone()
+            sender: self.sender.clone(),
         }
     }
 }
@@ -90,7 +85,7 @@ pub fn mailbox<A: Actor>() -> (MailboxSender<A>, Mailbox<A>) {
 }
 
 /// An Envelope encapsulate all messages an actor can receive.
-pub struct Envelope<A: Actor>(Box<dyn InnerEnvelope<A> + Send>);
+pub(super) struct Envelope<A: Actor>(Box<dyn InnerEnvelope<A> + Send>);
 
 impl<A: Actor> Envelope<A> {
     pub fn new<M>(message: M) -> Self
@@ -98,7 +93,13 @@ impl<A: Actor> Envelope<A> {
         A: Receiver<M>,
         M: Message,
     {
-        Envelope(Box::new(MessageEnvelope { message }))
+        Envelope(Box::new(MessageEnvelope {
+            message: Some(message),
+        }))
+    }
+
+    pub(super) fn process_message(&mut self, ctx: &Context<A>, act: &mut A) {
+        self.0.process_message(ctx, act)
     }
 }
 
@@ -107,15 +108,15 @@ impl<A: Actor> Envelope<A> {
 /// Underthehood this use dynamic dispatch to do this magic. Plus careful
 /// proof that a message M can be received by an actor A (type bounds).
 trait InnerEnvelope<A: Actor>: Downcast {
-    fn process_message(self, ctx: &Context<A>, act: &mut A);
-
-    fn as_any(&self) -> &dyn Any;
+    fn process_message(&mut self, ctx: &Context<A>, act: &mut A);
 }
 downcast_rs::impl_downcast!(InnerEnvelope<A> where A: Actor);
 //impl_downcast!(TraitGeneric3<T> assoc H where T: Copy, H: Clone);
 
 struct MessageEnvelope<M> {
-    message: M,
+    // We use an option to be able to take ownership of the message
+    // without having ownership of the envelope (using .take())
+    message: Option<M>,
 }
 
 impl<A, M> InnerEnvelope<A> for MessageEnvelope<M>
@@ -123,11 +124,9 @@ where
     M: Message,
     A: Actor + Receiver<M>,
 {
-    fn process_message(self, ctx: &Context<A>, act: &mut A) {
-        <A as Receiver<M>>::recv(act, ctx, self.message);
-    }
-    
-    fn as_any(&self) -> &dyn Any {
-        self
+    fn process_message(&mut self, ctx: &Context<A>, act: &mut A) {
+        if let Some(message) = self.message.take() {
+            <A as Receiver<M>>::recv(act, ctx, message);
+        }
     }
 }
