@@ -1,3 +1,4 @@
+use log::trace;
 use std::{collections::HashMap, time::Duration};
 use tokio::{
     sync::{mpsc, oneshot},
@@ -78,6 +79,7 @@ impl TokioTimer {
                     } => {
                         let start = Instant::now() + initial_delay;
                         let mut interval = tokio::time::interval_at(start, interval);
+                        trace!("Received new interval job");
 
                         let handle = tokio::spawn(async move {
                             loop {
@@ -93,6 +95,7 @@ impl TokioTimer {
                         reply_to.send(id); // TODO Error handling
                     }
                     Job::Cancel { id, reply_to } => {
+                        trace!("Cancelling job {:?}", id);
                         let mut aborted = 0;
                         if let Some((_, handle)) = timer.intervals.iter().find(|(i, _)| i == &&id) {
                             handle.abort();
@@ -132,6 +135,7 @@ impl Timer for TimerRef {
         A: Receiver<M>,
         M: Message,
     {
+        trace!("Creating a schedule for actor {:?}", receiver);
         let (tx, rx) = oneshot::channel();
         let job = Job::Interval {
             initial_delay,

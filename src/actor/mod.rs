@@ -14,7 +14,7 @@ use std::{
     collections::HashMap,
     fmt::{self, Debug},
 };
-use timer::{ScheduleId, Timer};
+pub use timer::{ScheduleId, Timer};
 
 pub trait Message: Debug + Clone + Send + 'static {}
 
@@ -113,16 +113,45 @@ where
         self.actor_of(name, A2::default())
     }
 
-    fn find_actor<A2: Actor>(&self, name: &str) -> Option<ActorRef<A2>> {
+    pub fn find_actor<A2: Actor>(&self, name: &str) -> Option<ActorRef<A2>> {
         self.system.find_actor(name)
     }
+}
 
-    // Find, or create if none exists, a channel for the given message type and name
-    /*
-    fn channel<M: Message>(&self, name: Topic<M>) -> ChannelRef<M> {
-        self.system.channel(name)
+#[async_trait::async_trait]
+impl<Ac: Actor> Timer for Context<Ac> {
+    async fn schedule<A, M>(
+        &self,
+        initial_delay: Duration,
+        interval: Duration,
+        receiver: ActorRef<A>,
+        msg: M,
+    ) -> ScheduleId
+    where
+        A: Receiver<M>,
+        M: Message,
+    {
+        self.system
+            .schedule(initial_delay, interval, receiver, msg)
+            .await
     }
-    */
+
+    async fn schedule_once<A, M>(
+        &self,
+        delay: Duration,
+        receiver: ActorRef<A>,
+        msg: M,
+    ) -> ScheduleId
+    where
+        A: Receiver<M>,
+        M: Message,
+    {
+        self.system.schedule_once(delay, receiver, msg).await
+    }
+
+    async fn cancel_schedule(&self, id: ScheduleId) -> bool {
+        self.system.cancel_schedule(id).await
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -188,6 +217,7 @@ impl ActorSystem {
             _ => (),
         };
 
+        trace!("Creating actor at path {}", path);
         let (sender, rx) = mailbox::mailbox();
         let addr = ActorRef {
             path: path.clone(),
@@ -200,6 +230,7 @@ impl ActorSystem {
         };
         let mut actor = actor;
 
+        trace!("[{}] pre_start", path);
         actor.pre_start(&context);
 
         // create the fiber
@@ -214,7 +245,10 @@ impl ActorSystem {
             let mut actor = actor;
             let context = context;
 
+            trace!("Actor {} running mail loop", path);
+
             while let Some(mut envelope) = mailbox.recv().await {
+                trace!("[{}] received message", path);
                 envelope.process_message(&context, &mut actor);
             }
 

@@ -2,6 +2,82 @@ use futures::Stream;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
+pub mod actors {
+    use super::{Luminosity, LuminosityReader};
+    use crate::actor::{Actor, ActorRef, Context, Message, Receiver, Timer};
+    use std::time::Duration;
+
+    const SENSOR_MEASUREMENT: &'static str = "sensors";
+
+    #[derive(Default)]
+    pub struct Sensors {
+        //channel: Option<ActorRef<Sensors>>, // type is probably wrong
+        reader: Option<super::runloop::Reader>,
+    }
+
+    #[derive(Debug, Clone)]
+    struct BroadcastedSensorRead(u32);
+
+    #[derive(Debug, Clone)]
+    pub enum SensorsMessage {
+        ReadRequest,
+    }
+
+    impl Message for SensorsMessage {}
+    impl Message for BroadcastedSensorRead {}
+
+    impl Actor for Sensors {
+        fn pre_start(&mut self, ctx: &Context<Self>) {
+            // register to a channel as a producer
+            //self.channel = ctx.find_actor(SENSOR_MEASUREMENT);
+
+            self.reader = Some(super::runloop::reader());
+
+            let delay = Duration::from_secs(5);
+
+            // Set up a request to read sensors value every 5 seconds.
+            // Ignore the schedule id. Only needed if we need to cancel the schedule.
+            let _ = ctx.schedule(
+                delay,
+                delay,
+                ctx.myself.clone(),
+                SensorsMessage::ReadRequest,
+            );
+        }
+    }
+
+    impl Receiver<SensorsMessage> for Sensors {
+        fn recv(&mut self, _ctx: &Context<Self>, msg: SensorsMessage) {
+            match msg {
+                SensorsMessage::ReadRequest => {
+                    if let Some(reader) = &self.reader {
+                        let luminosity = reader.read();
+                        println!("Reading value {:?} from sensor", luminosity);
+                    }
+
+                    /*
+                    if let Some(channel) = &self.channel {
+                        channel.publish(BroadcastedSensorRead(value));
+                    }
+                    */
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Luminosity {
+    visible: u32,
+    infrared: u16,
+    full_spectrum: u32,
+    lux: f32,
+}
+
+trait LuminosityReader {
+    fn read(&self) -> Luminosity; // todo errors
+}
+
 pub struct SensorsTask {
     sender: broadcast::Sender<SensorMessage>,
     handle: JoinHandle<()>,
@@ -52,6 +128,33 @@ mod runloop {
     use rppal::i2c::I2c;
     use tokio::task::JoinHandle;
 
+    pub(super) struct Reader {
+        lux_dev: TSL2591Sensor,
+    }
+
+    pub(super) fn reader() -> Reader {
+        let i2c = I2c::new().expect("Unable to open I2C bus.");
+        let lux_dev = TSL2591Sensor::new(i2c).expect("Unable to open sensor device.");
+
+        Reader { lux_dev }
+    }
+
+    impl super::LuminosityReader for Reader {
+        fn read(&self) -> Luminosity {
+            let visible = self.lux_dev.visible().unwrap();
+            let infrared = self.lux_dev.infrared().unwrap();
+            let full_spectrum = self.lux_dev.full_spectrum().unwrap();
+            let lux = self.lux_dev.lux().unwrap();
+
+            Luminosity {
+                visible,
+                infrared,
+                full_spectrum,
+                lux,
+            }
+        }
+    }
+
     pub(super) fn create(sender: tokio::sync::broadcast::Sender<SensorMessage>) -> JoinHandle<()> {
         let i2c = I2c::new().expect("Unable to open I2C bus.");
         let lux_dev = TSL2591Sensor::new(i2c).expect("Unable to open sensor device.");
@@ -97,6 +200,33 @@ mod runloop {
 
 #[cfg(not(target_os = "linux"))]
 mod runloop {
+
+    use super::Luminosity;
+
+    pub(super) struct Reader {
+        // random_generator
+    }
+
+    pub(super) fn reader() -> Reader {
+        Reader {}
+    }
+
+    impl super::LuminosityReader for Reader {
+        fn read(&self) -> Luminosity {
+            let visible = 1;
+            let infrared = 2;
+            let full_spectrum = 3;
+            let lux = 4.0;
+
+            Luminosity {
+                visible,
+                infrared,
+                full_spectrum,
+                lux,
+            }
+        }
+    }
+
     pub(super) fn create(
         _sender: tokio::sync::broadcast::Sender<super::SensorMessage>,
     ) -> tokio::task::JoinHandle<()> {

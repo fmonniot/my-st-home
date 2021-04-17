@@ -27,6 +27,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "/Users/francoismonniot/Projects/local/my-st-home/data/project/nothing",
     )?;
 
+    let system = actor::ActorSystem::new();
+    let a = system
+        .default_actor_of::<sensors::actors::Sensors>("sensors/luminosity")
+        .unwrap();
+
+    a.send_msg(sensors::actors::SensorsMessage::ReadRequest);
+
     // Create our background processors (lifx, screen, mqtt, ST events)
     let s_task = mqtt::spawn(&cfg).await?;
     let (screen_task, window_run_loop) = screen::spawn();
