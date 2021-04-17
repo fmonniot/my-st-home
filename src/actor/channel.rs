@@ -2,12 +2,7 @@
 //!
 
 use super::{Actor, ActorRef, Context, Message, Receiver};
-use std::{
-    any,
-    sync::Arc,
-    collections::HashMap,
-    convert::From,
-};
+use std::{any, collections::HashMap, convert::From, sync::Arc};
 
 #[derive(Debug, Clone)]
 pub struct ChannelRef<M: Message>(ActorRef<Channel<M>>);
@@ -20,7 +15,10 @@ where
         ChannelRef(r)
     }
 
-    pub fn publish<T>(&self, msg: M, topic: T) where T: Into<Topic> {
+    pub fn publish<T>(&self, msg: M, topic: T)
+    where
+        T: Into<Topic>,
+    {
         self.0.send_msg(ChannelMsg::Publish {
             topic: topic.into(),
             msg,
@@ -38,18 +36,24 @@ where
         self.0.send_msg(ChannelMsg::Subscribe {
             topic,
             path,
-            send: Arc::new(b)
-        })   
+            send: Arc::new(b),
+        })
     }
 
-    pub fn unsuscribe_from<A>(&self, actor: &ActorRef<A>, topic: Topic) where A: Receiver<M> {
+    pub fn unsuscribe_from<A>(&self, actor: &ActorRef<A>, topic: Topic)
+    where
+        A: Receiver<M>,
+    {
         self.0.send_msg(ChannelMsg::Unsubscribe {
             topic,
             path: actor.path().to_string(),
         })
     }
 
-    pub fn unsuscribe_all<A>(&self, actor: &ActorRef<A>) where A: Receiver<M> {
+    pub fn unsuscribe_all<A>(&self, actor: &ActorRef<A>)
+    where
+        A: Receiver<M>,
+    {
         self.0.send_msg(ChannelMsg::UnsubscribeAll {
             path: actor.path().to_string(),
         })

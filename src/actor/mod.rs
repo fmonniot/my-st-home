@@ -3,20 +3,23 @@ mod channel;
 mod mailbox;
 mod timer;
 
-use std::{any::TypeId, sync::{Arc, Mutex}};
+use log::trace;
 use std::time::Duration;
 use std::{
     any::Any,
     collections::HashMap,
     fmt::{self, Debug},
 };
-use log::trace;
+use std::{
+    any::TypeId,
+    sync::{Arc, Mutex},
+};
 
 use channel::Channel;
 use mailbox::MailboxSender;
 
-pub use timer::{ScheduleId, Timer};
 pub use channel::ChannelRef;
+pub use timer::{ScheduleId, Timer};
 
 pub trait Message: Debug + Clone + Send + 'static {}
 
@@ -176,7 +179,7 @@ pub struct ActorSystem {
     // Wait and See approach though.
     // Map of topic name to ActorRef.
     actors: Arc<Mutex<HashMap<String, Box<dyn Any + Send>>>>,
-    channels: Arc<Mutex<HashMap<TypeId, Box<dyn Any + Send>>>>
+    channels: Arc<Mutex<HashMap<TypeId, Box<dyn Any + Send>>>>,
 }
 
 /// Error type when an actor fails to start during `actor_of`.
@@ -191,7 +194,11 @@ impl ActorSystem {
         let actors = Arc::new(Mutex::new(HashMap::new()));
         let channels = Arc::new(Mutex::new(HashMap::new()));
 
-        ActorSystem { timer, actors, channels }
+        ActorSystem {
+            timer,
+            actors,
+            channels,
+        }
     }
 
     /// Create an actor under the system root

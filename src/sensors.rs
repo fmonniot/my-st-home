@@ -4,9 +4,9 @@ use tokio::task::JoinHandle;
 
 pub mod actors {
     use super::{Luminosity, LuminosityReader};
-    use crate::actor::{Actor, Context, Message, Receiver, Timer, ChannelRef};
-    use std::time::Duration;
+    use crate::actor::{Actor, ChannelRef, Context, Message, Receiver, Timer};
     use log::trace;
+    use std::time::Duration;
 
     /// Channel name where [`BroadcastedSensorRead`] are published to.
     pub const SENSORS_CHANNEL_NAME: &str = "sensors/luminosity";
