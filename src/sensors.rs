@@ -4,19 +4,15 @@ use tokio::task::JoinHandle;
 
 pub mod actors {
     use super::{Luminosity, LuminosityReader};
-    use crate::actor::{Actor, ActorRef, Context, Message, Receiver, Timer};
+    use crate::actor::{Actor, Context, Message, Receiver, Timer, ChannelRef};
     use std::time::Duration;
+    use log::trace;
 
-    const SENSOR_MEASUREMENT: &'static str = "sensors";
-
-    #[derive(Default)]
-    pub struct Sensors {
-        //channel: Option<ActorRef<Sensors>>, // type is probably wrong
-        reader: Option<super::runloop::Reader>,
-    }
+    /// Channel name where [`BroadcastedSensorRead`] are published to.
+    pub const SENSORS_CHANNEL_NAME: &str = "sensors/luminosity";
 
     #[derive(Debug, Clone)]
-    struct BroadcastedSensorRead(u32);
+    struct BroadcastedSensorRead(Luminosity);
 
     #[derive(Debug, Clone)]
     pub enum SensorsMessage {
@@ -26,11 +22,17 @@ pub mod actors {
     impl Message for SensorsMessage {}
     impl Message for BroadcastedSensorRead {}
 
+    /// An actor which regularly poll the various onboard sensors and publish
+    /// the results to a known channel for other actors to consume.
+    #[derive(Default)]
+    pub struct Sensors {
+        channel: Option<ChannelRef<BroadcastedSensorRead>>, // type is probably wrong
+        reader: Option<super::runloop::Reader>,
+    }
+
     impl Actor for Sensors {
         fn pre_start(&mut self, ctx: &Context<Self>) {
-            // register to a channel as a producer
-            //self.channel = ctx.find_actor(SENSOR_MEASUREMENT);
-
+            self.channel = Some(ctx.channel());
             self.reader = Some(super::runloop::reader());
 
             let delay = Duration::from_secs(5);
@@ -44,6 +46,11 @@ pub mod actors {
                 SensorsMessage::ReadRequest,
             );
         }
+
+        fn post_stop(&mut self, _ctx: &Context<Self>) {
+            self.channel = None;
+            self.reader = None;
+        }
     }
 
     impl Receiver<SensorsMessage> for Sensors {
@@ -52,21 +59,19 @@ pub mod actors {
                 SensorsMessage::ReadRequest => {
                     if let Some(reader) = &self.reader {
                         let luminosity = reader.read();
-                        println!("Reading value {:?} from sensor", luminosity);
-                    }
+                        trace!("Reading value {:?} from sensor", luminosity);
 
-                    /*
-                    if let Some(channel) = &self.channel {
-                        channel.publish(BroadcastedSensorRead(value));
+                        if let Some(channel) = &self.channel {
+                            channel.publish(BroadcastedSensorRead(luminosity), SENSORS_CHANNEL_NAME)
+                        }
                     }
-                    */
                 }
             }
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Luminosity {
     visible: u32,
     infrared: u16,
@@ -198,6 +203,8 @@ mod runloop {
     }
 }
 
+// TODO Once fully migrated to actor model, rename to something else.
+// maybe `platform` ?
 #[cfg(not(target_os = "linux"))]
 mod runloop {
 

@@ -1,20 +1,22 @@
 //! A very small and imperfect actor system.
-//mod channel;
+mod channel;
 mod mailbox;
 mod timer;
 
-use log::trace;
-//use channel::{Channel, ChannelRef, Topic};
-use mailbox::MailboxSender;
-
-use std::sync::{Arc, Mutex};
+use std::{any::TypeId, sync::{Arc, Mutex}};
 use std::time::Duration;
 use std::{
     any::Any,
     collections::HashMap,
     fmt::{self, Debug},
 };
+use log::trace;
+
+use channel::Channel;
+use mailbox::MailboxSender;
+
 pub use timer::{ScheduleId, Timer};
+pub use channel::ChannelRef;
 
 pub trait Message: Debug + Clone + Send + 'static {}
 
@@ -116,6 +118,10 @@ where
     pub fn find_actor<A2: Actor>(&self, name: &str) -> Option<ActorRef<A2>> {
         self.system.find_actor(name)
     }
+
+    pub fn channel<M: Message>(&self) -> ChannelRef<M> {
+        self.system.channel()
+    }
 }
 
 impl<Ac: Actor> Timer for Context<Ac> {
@@ -170,7 +176,7 @@ pub struct ActorSystem {
     // Wait and See approach though.
     // Map of topic name to ActorRef.
     actors: Arc<Mutex<HashMap<String, Box<dyn Any + Send>>>>,
-    //pub(crate) provider: Provider,
+    channels: Arc<Mutex<HashMap<TypeId, Box<dyn Any + Send>>>>
 }
 
 /// Error type when an actor fails to start during `actor_of`.
@@ -183,8 +189,9 @@ impl ActorSystem {
     pub fn new() -> ActorSystem {
         let timer = timer::TokioTimer::new();
         let actors = Arc::new(Mutex::new(HashMap::new()));
+        let channels = Arc::new(Mutex::new(HashMap::new()));
 
-        ActorSystem { timer, actors }
+        ActorSystem { timer, actors, channels }
     }
 
     /// Create an actor under the system root
@@ -244,7 +251,7 @@ impl ActorSystem {
                 envelope.process_message(&context, &mut actor);
             }
 
-            actor.post_stop();
+            actor.post_stop(&context);
             trace!("Actor {} has stopped", path)
         });
 
@@ -259,7 +266,7 @@ impl ActorSystem {
         self.actor_of(name, A::default())
     }
 
-    // TODO Should use type of messages instead
+    // TODO Should use type of messages instead. Signature be like the channel function below actually.
     pub fn find_actor<A2: Actor>(&self, name: &str) -> Option<ActorRef<A2>> {
         // registered: Arc<Mutex<HashMap<String, Box<(TypeId, dyn Any + Send)>>>>,
         let actors = self.actors.lock().unwrap();
@@ -270,17 +277,19 @@ impl ActorSystem {
             .cloned()
     }
 
-    /*
-    fn channel<M: Message>(&self, name: Topic<M>) -> ChannelRef<M> {
+    /// Get access to a channel for a given message type
+    fn channel<M: Message>(&self) -> ChannelRef<M> {
         let mut channels = self.channels.lock().unwrap();
+        let type_id = TypeId::of::<M>();
 
-        match channels.get(&name.0) {
+        match channels.get(&type_id) {
             Some(channel) => {
                 if let Some(addr) = channel.downcast_ref::<ChannelRef<M>>() {
                     let r = addr.clone();
 
                     r
                 } else {
+                    // error instead ?
                     panic!("The topic message type differ from the one it was registered with")
                 }
             }
@@ -288,16 +297,15 @@ impl ActorSystem {
                 // Create channel for given type
                 // - What's the actor name ? /system/channels/type_id ?
                 let actor = self
-                    .default_actor_of::<Channel<M>>(&format!("channels/{}", name))
+                    .default_actor_of::<Channel<M>>(&format!("channels/{:?}", type_id))
                     .unwrap();
-                let c_ref = ChannelRef::new(actor, name.clone());
-                channels.insert(name.0, Box::new(c_ref.clone()));
+                let c_ref = ChannelRef::new(actor);
+                channels.insert(type_id, Box::new(c_ref.clone()));
 
                 c_ref
             }
         }
     }
-    */
 }
 
 impl fmt::Debug for ActorSystem {
@@ -353,8 +361,11 @@ pub trait Actor: Sized + Send + 'static {
     /// supervision strategy and the actor will be terminated.
     fn pre_start(&mut self, _ctx: &Context<Self>) {}
 
-    /// Invoked after an actor has been stopped.
-    fn post_stop(&mut self) {}
+    /// Invoked after an actor has been stopped. Note that sending
+    /// messages to the `myself` [`ActorRef`] in the given context
+    /// will lead to their loss, as the actor is now stopped.
+    /// The [`Context`] is passed as a mean to do clean up operations.
+    fn post_stop(&mut self, _ctx: &Context<Self>) {}
 }
 
 /// Describes how to handle messages of a specific type.

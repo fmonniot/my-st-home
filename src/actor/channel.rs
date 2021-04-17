@@ -3,110 +3,143 @@
 
 use super::{Actor, ActorRef, Context, Message, Receiver};
 use std::{
-    any::{Any, TypeId},
+    any,
+    sync::Arc,
     collections::HashMap,
-    marker::PhantomData,
+    convert::From,
 };
-use futures::channel::mpsc;
-use tokio::sync::oneshot;
 
 #[derive(Debug, Clone)]
-pub struct ChannelRef<M, A>(ActorRef<A>, Topic<M>);
+pub struct ChannelRef<M: Message>(ActorRef<Channel<M>>);
 
-impl<M, A> ChannelRef<M, A>
+impl<M> ChannelRef<M>
 where
     M: Message,
-    A: Receiver<M>
 {
-    pub(super) fn new(r: ActorRef<A>, topic: Topic<M>) -> ChannelRef<M, A> {
-        ChannelRef(r, topic)
+    pub(super) fn new(r: ActorRef<Channel<M>>) -> ChannelRef<M> {
+        ChannelRef(r)
     }
 
-    pub fn publish(&self, msg: M) {
+    pub fn publish<T>(&self, msg: M, topic: T) where T: Into<Topic> {
         self.0.send_msg(ChannelMsg::Publish {
-            topic: self.1.clone(),
+            topic: topic.into(),
             msg,
+        })
+    }
+
+    pub fn subscribe_to<A>(&self, actor: ActorRef<A>, topic: Topic)
+    where
+        A: Receiver<M>,
+    {
+        let path = actor.path().to_string();
+        let b = Box::new(move |m: M| {
+            actor.send_msg(m.clone());
+        });
+        self.0.send_msg(ChannelMsg::Subscribe {
+            topic,
+            path,
+            send: Arc::new(b)
+        })   
+    }
+
+    pub fn unsuscribe_from<A>(&self, actor: &ActorRef<A>, topic: Topic) where A: Receiver<M> {
+        self.0.send_msg(ChannelMsg::Unsubscribe {
+            topic,
+            path: actor.path().to_string(),
+        })
+    }
+
+    pub fn unsuscribe_all<A>(&self, actor: &ActorRef<A>) where A: Receiver<M> {
+        self.0.send_msg(ChannelMsg::UnsubscribeAll {
+            path: actor.path().to_string(),
         })
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum ChannelMsg<M: Message, A> {
+/// SendMessage hide away how we deliver the message to the underlying actor.
+/// This let us remove a dependency on an [`Actor`] type. It does have a few
+/// requirement because it has to fit in a [`Message`].
+type SendMessage<M> = Arc<Box<dyn Fn(M) -> () + Send + Sync>>;
+
+#[derive(Clone)]
+pub enum ChannelMsg<M: Message> {
     /// Publish message
     Publish {
-        topic: Topic<M>,
+        topic: Topic,
         msg: M,
     },
 
-    /// Subscribe given `ActorRef` to a topic on a channel
+    /// Subscribe given actor path to a topic on a channel
     Subscribe {
-        topic: Topic<M>,
-        actor: ActorRef<A>,
+        topic: Topic,
+        path: String,
+        send: SendMessage<M>,
     },
 
-    // Unsubscribe the given `ActorRef` from a topic on a channel
+    // Unsubscribe the given actor path from a topic on a channel
     Unsubscribe {
-        topic: Topic<M>,
-        actor: ActorRef<A>,
+        topic: Topic,
+        path: String,
     },
 
-    // Unsubscribe the given `ActorRef` from all topics on a channel
+    // Unsubscribe the given actor path from all topics on a channel
     UnsubscribeAll {
-        actor: ActorRef<A>,
+        path: String,
     },
 }
 
-impl<M: Message, A> Message for ChannelMsg<M, A> {}
-
-// To be able to create the topic name as `const`. Let's see if that's a
-// useful pattern or not really.
-pub struct StaticTopic<M>(&'static str, std::marker::PhantomData<M>);
-
-impl<M> StaticTopic<M> {
-    pub const fn new(name: &'static str) -> StaticTopic<M> {
-        StaticTopic(name, PhantomData)
+// Custom implementation because we can't derive `SendMessage`
+// TODO Do we want to simplify here by making SendMessage a newtype instead of alias ?
+impl<M: Message> std::fmt::Debug for ChannelMsg<M> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            ChannelMsg::Publish { topic, msg } => f
+                .debug_struct("Publish")
+                .field("topic", topic)
+                .field("msg", msg)
+                .finish(),
+            ChannelMsg::Subscribe { topic, path, .. } => f
+                .debug_struct("Subscribe")
+                .field("topic", topic)
+                .field("path", path)
+                .field("send", &"fn")
+                .finish(),
+            ChannelMsg::Unsubscribe { topic, path } => f
+                .debug_struct("Unsubscribe")
+                .field("topic", topic)
+                .field("path", path)
+                .finish(),
+            ChannelMsg::UnsubscribeAll { path } => f
+                .debug_struct("UnsubscribeAll")
+                .field("path", path)
+                .finish(),
+        }
     }
 }
 
-impl<M: Message> Into<Topic<M>> for StaticTopic<M> {
-    fn into(self) -> Topic<M> {
-        Topic::new(self.0)
-    }
-}
+impl<M: Message> Message for ChannelMsg<M> {}
 
 /// Topics allow channel subscribers to filter messages by interest
 /// When publishing a message to a channel a Topic is provided.
-#[derive(Clone, Debug)]
-pub struct Topic<M: Message>(pub(super) String, std::marker::PhantomData<M>);
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Topic(String);
 
-impl<M: Message> std::fmt::Display for Topic<M> {
+impl std::fmt::Display for Topic {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl<M: Message> PartialEq for Topic<M> {
-    fn eq(&self, other: &Topic<M>) -> bool {
-        self.0 == other.0
-    }
-}
-impl<M: Message> Eq for Topic<M> {}
-
-impl<M: Message> std::hash::Hash for Topic<M> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.hash(state)
+// Note to me, chained from/into is pretty powerful :)
+impl<S: Into<String>> From<S> for Topic {
+    fn from(string: S) -> Self {
+        let s = string.into();
+        Topic(s)
     }
 }
 
-impl<M: Message> Topic<M> {
-    pub fn new(name: &str) -> Topic<M> {
-        Topic(name.to_string(), PhantomData)
-    }
-}
-
-#[derive(Debug)]
 pub struct Channel<M: Message> {
-    subscriptions: HashMap<Topic<M>, Vec<ActorRef<M>>>,
+    subscriptions: HashMap<Topic, Vec<(String, SendMessage<M>)>>,
 }
 
 impl<M: Message> Default for Channel<M> {
@@ -117,109 +150,67 @@ impl<M: Message> Default for Channel<M> {
     }
 }
 
-impl<M> Actor for Channel<M> where M: Message,
-{
-
-    // todo sys_recv and unsubscribe everyone
+impl<M: Message> std::fmt::Debug for Channel<M> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("Channel")
+            .field("message_type", &any::type_name::<M>())
+            .field("subscriptions", &self.subscriptions.keys())
+            .finish()
+    }
 }
 
-impl<M, A> Receiver<ChannelMsg<M, A>> for Channel<M> where M: Message, A: Actor + Receiver<M> {
-    fn recv(&mut self, ctx: &Context<Self>, msg: ChannelMsg<M>) {
+impl<M> Actor for Channel<M>
+where
+    M: Message,
+{
+    // todo post_stop and unsubscribe everyone
+}
+
+impl<M> Receiver<ChannelMsg<M>> for Channel<M>
+where
+    M: Message,
+{
+    fn recv(&mut self, _ctx: &Context<Self>, msg: ChannelMsg<M>) {
         match msg {
             ChannelMsg::Publish { topic, msg } => {
-                if let Some(actors) = self.subscriptions.get(&topic) {
-                    for actor in actors {
-                        actor.send_msg(msg.clone());
+                if let Some(subs) = self.subscriptions.get(&topic) {
+                    for (_, send) in subs {
+                        send(msg.clone())
                     }
                 }
             }
-            ChannelMsg::Subscribe { topic, actor } => {
+            ChannelMsg::Subscribe { topic, path, send } => {
                 let entry = self.subscriptions.entry(topic).or_default();
 
-                // TODO Maybe check if ActorRef is already in ? Use a Set instead of a Vec ?
-                entry.push(actor);
+                // TODO Maybe check if path is already in ? Use a Set instead of a Vec ?
+                entry.push((path, send));
             }
-            ChannelMsg::Unsubscribe { topic, actor } => {
-                unsubscribe(&mut self.subscriptions, &topic, &actor);
+            ChannelMsg::Unsubscribe { topic, path } => {
+                unsubscribe(&mut self.subscriptions, &topic, &path);
             }
-            ChannelMsg::UnsubscribeAll { actor } => {
+            ChannelMsg::UnsubscribeAll { path } => {
                 // We need to release the borrow on self.subscribtions to be able to mutate it below
                 let keys = self.subscriptions.keys().cloned().collect::<Vec<_>>();
 
                 for topic in keys {
-                    unsubscribe(&mut self.subscriptions, &topic, &actor)
+                    unsubscribe(&mut self.subscriptions, &topic, &path)
                 }
             }
         }
     }
 }
 
-fn unsubscribe<A, M>(
-    subscriptions: &mut HashMap<Topic<M>, Vec<ActorRef<M>>>,
-    topic: &Topic<M>,
-    actor: &ActorRef<M>,
-)
-where
-    A: Actor,
+fn unsubscribe<M>(
+    subscriptions: &mut HashMap<Topic, Vec<(String, SendMessage<M>)>>,
+    topic: &Topic,
+    path: &String,
+) where
     M: Message,
-    A: Receiver<M>,
 {
     if let Some(actors) = subscriptions.get_mut(topic) {
-        let p = actors.iter().position(|a| a.path() == actor.path());
+        let p = actors.iter().position(|(p, send)| p == path);
         if let Some(index) = p {
             actors.remove(index);
         }
     }
 }
-
-/*
-pub struct ChannelRegistry {
-    channels: HashMap<String, Box<dyn Any>>
-}
-
-enum ChannelRegistryMsg {
-    FindOrCreate { name: Topic, reply_to: oneshot::Sender<ChannelRef<M>> },
-    // Delete
-}
-
-impl ChannelRegistry {
-    // TODO What if Topic would need to have the messages type associated with it ?
-    // If we can do something like `const MY_TOPIC: Topic<MyMessage> = Topic("my-message");` it would be pretty dope
-    fn find_or_create<M: Message>(&mut self, name: Topic<M>) -> ChannelRef<M> {
-
-        match self.channels.get(&name.0) {
-            Some(channel) => {
-                if let Some(addr) = channel.downcast_ref::<ChannelRef<M>>() {
-                    let r = addr.clone();
-
-                    r
-                } else {
-                    panic!("The topic message type differ from the one it was registered with")
-                }
-            }
-            None => {
-                // Create channel for given type
-                // - What's the actor name ? /system/channels/type_id ?
-                let actor = self.actor_of::<Channel<M>>(&format!("channels/{}", name)).unwrap();
-                let c_ref = ChannelRef::new(actor);
-                self.channels.insert(name.0, Box::new(c_ref.clone()));
-
-                c_ref
-            }
-        }
-    }
-}
-
-impl<Msg> Actor for ChannelRegistry where Msg: Message {
-    type Msg = ChannelRegistryMsg<Msg>;
-
-    fn recv(&mut self, ctx: &Context<Self::Msg>, msg: Self::Msg) {
-        match msg {
-            ChannelRegistryMsg::FindOrCreate { name, reply_to } => {
-                let r = self.find_or_create(name);
-                reply_to.try_send(r);
-            }
-        }
-    }
-}
- */
