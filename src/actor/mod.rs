@@ -55,7 +55,7 @@ impl<A: Actor> ActorRef<A> {
     }
 
     pub fn path(&self) -> &str {
-        todo!()
+        &self.path
     }
 }
 
@@ -118,9 +118,8 @@ where
     }
 }
 
-#[async_trait::async_trait]
 impl<Ac: Actor> Timer for Context<Ac> {
-    async fn schedule<A, M>(
+    fn schedule<A, M>(
         &self,
         initial_delay: Duration,
         interval: Duration,
@@ -131,26 +130,19 @@ impl<Ac: Actor> Timer for Context<Ac> {
         A: Receiver<M>,
         M: Message,
     {
-        self.system
-            .schedule(initial_delay, interval, receiver, msg)
-            .await
+        self.system.schedule(initial_delay, interval, receiver, msg)
     }
 
-    async fn schedule_once<A, M>(
-        &self,
-        delay: Duration,
-        receiver: ActorRef<A>,
-        msg: M,
-    ) -> ScheduleId
+    fn schedule_once<A, M>(&self, delay: Duration, receiver: ActorRef<A>, msg: M) -> ScheduleId
     where
         A: Receiver<M>,
         M: Message,
     {
-        self.system.schedule_once(delay, receiver, msg).await
+        self.system.schedule_once(delay, receiver, msg)
     }
 
-    async fn cancel_schedule(&self, id: ScheduleId) -> bool {
-        self.system.cancel_schedule(id).await
+    fn cancel_schedule(&self, id: ScheduleId) {
+        self.system.cancel_schedule(id)
     }
 }
 
@@ -318,9 +310,8 @@ impl fmt::Debug for ActorSystem {
     }
 }
 
-#[async_trait::async_trait]
 impl Timer for ActorSystem {
-    async fn schedule<A, M>(
+    fn schedule<A, M>(
         &self,
         initial_delay: Duration,
         interval: Duration,
@@ -331,26 +322,19 @@ impl Timer for ActorSystem {
         A: Receiver<M>,
         M: Message,
     {
-        self.timer
-            .schedule(initial_delay, interval, receiver, msg)
-            .await
+        self.timer.schedule(initial_delay, interval, receiver, msg)
     }
 
-    async fn schedule_once<A, M>(
-        &self,
-        delay: Duration,
-        receiver: ActorRef<A>,
-        msg: M,
-    ) -> ScheduleId
+    fn schedule_once<A, M>(&self, delay: Duration, receiver: ActorRef<A>, msg: M) -> ScheduleId
     where
         A: Receiver<M>,
         M: Message,
     {
-        self.timer.schedule_once(delay, receiver, msg).await
+        self.timer.schedule_once(delay, receiver, msg)
     }
 
-    async fn cancel_schedule(&self, id: ScheduleId) -> bool {
-        self.timer.cancel_schedule(id).await
+    fn cancel_schedule(&self, id: ScheduleId) {
+        self.timer.cancel_schedule(id)
     }
 }
 
@@ -367,7 +351,7 @@ pub trait Actor: Sized + Send + 'static {
     ///
     /// Panics in `pre_start` do not invoke the
     /// supervision strategy and the actor will be terminated.
-    fn pre_start(&mut self, ctx: &Context<Self>) {}
+    fn pre_start(&mut self, _ctx: &Context<Self>) {}
 
     /// Invoked after an actor has been stopped.
     fn post_stop(&mut self) {}
