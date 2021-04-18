@@ -891,6 +891,7 @@ dependencies = [
  "env_logger",
  "epd-waveshare",
  "futures",
+ "futures-core",
  "lifx-core",
  "log",
  "mqtt-protocol",
