@@ -1,6 +1,7 @@
 //! A very small and imperfect actor system.
 mod channel;
 mod mailbox;
+pub mod network;
 mod timer;
 
 use log::trace;
@@ -79,6 +80,16 @@ impl<A: Actor> Clone for ActorRef<A> {
     }
 }
 
+pub struct StreamHandle {
+    handle: tokio::task::JoinHandle<()>,
+}
+impl StreamHandle {
+    fn cancel(&self) {
+        // Should we do that differently ?
+        self.handle.abort()
+    }
+}
+
 /// Provides context, including the actor system during actor execution.
 ///
 /// `Context` is passed to an actor's functions, such as
@@ -124,6 +135,26 @@ where
 
     pub fn channel<M: Message>(&self) -> ChannelRef<M> {
         self.system.channel()
+    }
+
+    /// Register a Stream to the actor context.
+    fn subscribe_to_stream<S>(&self, stream: S) -> StreamHandle
+    where
+        S: futures::Stream + 'static + Unpin + Send,
+        S::Item: Message,
+        A: Receiver<S::Item>,
+    {
+        let receiver = self.myself.clone();
+        let handle = tokio::spawn(async move {
+            use futures::StreamExt;
+            let mut stream = stream;
+
+            while let Some(msg) = stream.next().await {
+                receiver.send_msg(msg);
+            }
+        });
+
+        StreamHandle { handle }
     }
 }
 
