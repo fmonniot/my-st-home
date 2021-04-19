@@ -1,8 +1,10 @@
+use bytes::BytesMut;
 use log::{debug, error, info, trace, warn};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use std::{net::SocketAddr, sync::Arc};
 use tokio::{net::UdpSocket, sync::RwLock, task::JoinHandle};
+use tokio_util::codec::{Decoder, Encoder};
 
 use lifx_core::{get_product_info, BuildOptions, Message, PowerLevel, RawMessage, HSBK};
 
@@ -229,7 +231,7 @@ async fn network_receive(
                         .or_insert_with(|| BulbInfo::new(source, raw.frame_addr.target, addr));
 
                     if let Err(e) = handle_bulb_message(raw, bulb) {
-                        error!("Error handling message from {}: {}", addr, e)
+                        error!("Error handling message from {}: {:?}", addr, e)
                     }
                 }
                 Err(error) => {
@@ -386,4 +388,84 @@ enum Color {
     Unknown,
     Single(Option<HSBK>),             // Regular bulb
     Multi(Option<Vec<Option<HSBK>>>), // strip, beam and candles
+}
+
+struct LifxCodec;
+
+impl Encoder<(BuildOptions, Message)> for LifxCodec {
+    type Error = lifx_core::Error;
+
+    fn encode(
+        &mut self,
+        (options, msg): (BuildOptions, Message),
+        dst: &mut BytesMut,
+    ) -> Result<(), Self::Error> {
+        let raw = RawMessage::build(&options, msg)?;
+
+        let bytes = raw.pack()?;
+
+        dst.extend_from_slice(&bytes);
+
+        Ok(())
+    }
+}
+
+impl Decoder for LifxCodec {
+    type Item = Message;
+    type Error = lifx_core::Error;
+
+    // TODO Manage frames over multiple packet (is it even possible with lify protocol ?)
+    // TODO Make sure we have correctly consumed the buffer
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        let raw = RawMessage::unpack(&src)?;
+        let msg = Message::from_raw(&raw)?;
+
+        Ok(Some(msg))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encode_and_decode() {
+        let options = BuildOptions {
+            target: Some(1),
+            res_required: true,
+            source: 2,
+            ..Default::default()
+        };
+
+        let orig_color = HSBK {
+            hue: 5,
+            saturation: 6,
+            brightness: 7,
+            kelvin: 8,
+        };
+        let message = Message::LightSetColor {
+            reserved: 0,
+            color: orig_color.clone(),
+            duration: 9, // ms ?
+        };
+
+        let mut buffer = BytesMut::new();
+        LifxCodec
+            .encode((options, message.clone()), &mut buffer)
+            .unwrap();
+        let res = LifxCodec.decode(&mut buffer);
+
+        match res {
+            Ok(Some(Message::LightSetColor {
+                reserved,
+                color,
+                duration,
+            })) => {
+                assert_eq!(reserved, 0);
+                assert_eq!(color, orig_color);
+                assert_eq!(duration, 9);
+            }
+            r => assert!(false, "result {:?} was not expected", r),
+        }
+    }
 }
