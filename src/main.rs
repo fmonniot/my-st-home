@@ -28,11 +28,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let system = actor::ActorSystem::new();
-    let a = system
+    let _sensors_actor = system
         .default_actor_of::<sensors::actors::Sensors>("sensors/luminosity")
         .unwrap();
 
-    a.send_msg(sensors::actors::SensorsMessage::ReadRequest);
+    let _lifx_actor = system
+        .default_actor_of::<lifx::actors::Manager>("lifx")
+        .unwrap();
 
     // Create our background processors (lifx, screen, mqtt, ST events)
     let s_task = mqtt::spawn(&cfg).await?;

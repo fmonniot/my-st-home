@@ -12,6 +12,7 @@ pub mod udp {
     use tokio::net::UdpSocket;
     use tokio_util::codec::{Decoder, Encoder};
 
+    #[derive(Debug)]
     pub enum CreationError {
         IO(std::io::Error),
     }
@@ -46,14 +47,16 @@ pub mod udp {
         send_packet: Box<dyn Fn(UdpPacketResult<C::Item, C::Error>) -> () + Send + Sync>,
     }
 
-    pub async fn create<A, C, I>(
+    #[allow(dead_code)]
+    pub fn create<A, C, In, Out>(
         addr: SocketAddr,
         codec: C,
         target: ActorRef<A>,
     ) -> Result<Udp<C>, CreationError>
     where
-        C: Decoder<Item = I> + Encoder<I> + Unpin + Clone,
-        I: Message,
+        C: Decoder<Item = Out> + Encoder<In> + Unpin + Clone,
+        Out: Message,
+        In: Message,
         A: Receiver<UdpPacketResult<C::Item, <C as Decoder>::Error>>,
         <C as Decoder>::Error: Message,
     {
