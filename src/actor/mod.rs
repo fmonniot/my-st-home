@@ -4,7 +4,7 @@ mod mailbox;
 pub mod network;
 mod timer;
 
-use log::trace;
+use log::{debug, trace};
 use std::time::Duration;
 use std::{
     any::Any,
@@ -241,7 +241,9 @@ impl ActorSystem {
         S: Into<String>,
     {
         let name = name.into();
+        trace!("actor_of::taking lock on self.actors");
         let mut actors = self.actors.lock().unwrap();
+        trace!("actor_of::lock taken on self.actors");
 
         let entry = actors.entry(name);
         let path = entry.key().clone();
@@ -267,9 +269,16 @@ impl ActorSystem {
         };
         let mut actor = actor;
 
-        trace!("[{}] pre_start", path);
+        // We have an actor so we save its reference into self.actors.
+        // Note that it is still not running but because actor.pre_start
+        // often needs to create their own actors, we need to release our
+        // lock on self.actors before invoking it.
+        drop(actors);
+
+        debug!("[{}] pre_start", path);
         actor.pre_start(&context);
 
+        trace!("spawning actor");
         // create the fiber
         // TODO Do we want to keep track of the JoinHandle ?
         // TODO We might need some kind of system side channel, to be able to terminate actors for example
@@ -282,7 +291,7 @@ impl ActorSystem {
             let mut actor = actor;
             let context = context;
 
-            trace!("Actor {} running mail loop", path);
+            debug!("Actor {} running mail loop", path);
 
             while let Some(mut envelope) = mailbox.recv().await {
                 trace!("[{}] received message", path);
@@ -293,6 +302,7 @@ impl ActorSystem {
             trace!("Actor {} has stopped", path)
         });
 
+        trace!("returning address {:?}", addr);
         Ok(addr)
     }
 
@@ -317,13 +327,17 @@ impl ActorSystem {
 
     /// Get access to a channel for a given message type
     fn channel<M: Message>(&self) -> ChannelRef<M> {
+        trace!("find or create channel");
         let mut channels = self.channels.lock().unwrap();
         let type_id = TypeId::of::<M>();
 
+        trace!("Looking up channel for type id {:?}", type_id);
         match channels.get(&type_id) {
             Some(channel) => {
+                trace!("Channel found");
                 if let Some(addr) = channel.downcast_ref::<ChannelRef<M>>() {
                     let r = addr.clone();
+                    debug!("Channel {:?} found", r);
 
                     r
                 } else {
@@ -332,14 +346,18 @@ impl ActorSystem {
                 }
             }
             None => {
+                trace!("No channel found, creating channel");
                 // Create channel for given type
                 // - What's the actor name ? /system/channels/type_id ?
                 let actor = self
                     .default_actor_of::<Channel<M>>(&format!("channels/{:?}", type_id))
                     .unwrap();
+
+                debug!("Channel actor created at {:?}", actor);
                 let c_ref = ChannelRef::new(actor);
                 channels.insert(type_id, Box::new(c_ref.clone()));
 
+                trace!("Channel actor stored in channels, returning ref and releasing lock");
                 c_ref
             }
         }
