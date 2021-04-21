@@ -219,6 +219,16 @@ pub enum CreateError {
     AlreadyExists(String),
 }
 
+impl std::fmt::Display for CreateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CreateError::AlreadyExists(name) => write!(f, "Actor `{}` already exists in the system", name)
+        }
+    }
+}
+
+impl std::error::Error for CreateError {}
+
 impl ActorSystem {
     pub fn new() -> ActorSystem {
         let timer = timer::TokioTimer::new();

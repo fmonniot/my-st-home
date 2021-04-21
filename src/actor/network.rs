@@ -23,9 +23,20 @@ pub mod udp {
         }
     }
 
+    impl std::fmt::Display for CreationError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                CreationError::IO(e) => write!(f, "IO({})", e)
+            }
+        }
+    }
+
+    impl std::error::Error for CreationError {}
+
     // TODO Way better name
+    // name that Command ?
     #[derive(Debug, Clone)]
-    enum Msg<I: Message> {
+    pub enum Msg<I: Message> {
         Write(I),
     }
 
@@ -47,7 +58,6 @@ pub mod udp {
         send_packet: Box<dyn Fn(UdpPacketResult<C::Item, C::Error>) -> () + Send + Sync>,
     }
 
-    #[allow(dead_code)]
     pub fn create<A, C, In, Out>(
         addr: SocketAddr,
         codec: C,
