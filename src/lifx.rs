@@ -511,22 +511,39 @@ mod tests {
 /// instead of raw tokio's primitive.
 pub mod actors {
 
-    use super::{LifxCodec, LifxError};
-    use crate::actor::{
-        network::{self, udp::Udp},
-        Actor, Context, Message, Receiver, Timer,
-    };
+    use super::{LifxCodec, LifxError, Color};
+    use crate::actor::{Actor, ActorRef, Context, Message, Receiver, Timer, network::{self, udp::Udp}};
     use log::error;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
+    use std::collections::HashMap;
+    use lifx_core::{get_product_info, BuildOptions, PowerLevel, RawMessage, HSBK};
 
     // Actors
 
     #[derive(Default)]
     pub struct Manager {
         udp: Option<Udp<LifxCodec>>,
+        bulbs: HashMap<u64, BulbInfo>,
+    }
+
+    struct BulbInfo {
+        last_seen: Instant,
+        source: u32,
+        target: u64,
+        addr: ActorRef<Bulb>,
+        // Option because we need some network interaction before having this information
+        name: Option<String>,
+        location: Option<String>,
+        group: Option<String>,
+        power_level: Option<PowerLevel>,
+        color: Color,
     }
 
     struct Bulb;
+
+    impl Actor for Bulb {
+
+    }
 
     // Messages
 
