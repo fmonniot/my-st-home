@@ -222,7 +222,9 @@ pub enum CreateError {
 impl std::fmt::Display for CreateError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CreateError::AlreadyExists(name) => write!(f, "Actor `{}` already exists in the system", name)
+            CreateError::AlreadyExists(name) => {
+                write!(f, "Actor `{}` already exists in the system", name)
+            }
         }
     }
 }

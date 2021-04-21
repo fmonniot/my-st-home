@@ -26,7 +26,7 @@ pub mod udp {
     impl std::fmt::Display for CreationError {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
-                CreationError::IO(e) => write!(f, "IO({})", e)
+                CreationError::IO(e) => write!(f, "IO({})", e),
             }
         }
     }
