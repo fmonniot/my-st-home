@@ -98,15 +98,16 @@ pub mod udp {
         }
     }
 
-    impl<C, I> Receiver<Msg<I>> for Udp<C>
+    impl<C, In, Out> Receiver<Msg<Out>> for Udp<C>
     where
-        I: Message,
-        C: Decoder<Item = I> + Encoder<I> + Send + Unpin + Clone + 'static,
+        In: Message,
+        Out: Message,
+        C: Decoder<Item = In> + Encoder<Out> + Send + Unpin + Clone + 'static,
         <C as Decoder>::Item: Message,
         <C as Decoder>::Error: Message,
-        <C as Encoder<I>>::Error: Send,
+        <C as Encoder<Out>>::Error: Send,
     {
-        fn recv(&mut self, _ctx: &Context<Self>, msg: Msg<I>) {
+        fn recv(&mut self, _ctx: &Context<Self>, msg: Msg<Out>) {
             match msg {
                 Msg::Write(item) => {
                     let addr = self.addr.clone();
