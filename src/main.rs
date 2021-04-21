@@ -9,6 +9,7 @@ mod sensors;
 #[cfg(target_os = "linux")]
 mod tsl_2591;
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -32,8 +33,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .default_actor_of::<sensors::actors::Sensors>("sensors/luminosity")
         .unwrap();
 
+    let broadcast_addr: SocketAddr = "192.168.1.255:56700"
+        .parse()
+        .expect("correct hardcoded broadcast address");
+
     let _lifx_actor = system
-        .default_actor_of::<lifx::actors::Manager>("lifx")
+        .actor_of("lifx", lifx::actors::Manager::new(broadcast_addr))
         .unwrap();
 
     // Create our background processors (lifx, screen, mqtt, ST events)

@@ -511,19 +511,25 @@ mod tests {
 /// instead of raw tokio's primitive.
 pub mod actors {
 
-    use super::{LifxCodec, LifxError, Color};
-    use crate::actor::{Actor, ActorRef, Context, Message, Receiver, Timer, network::{self, udp::Udp}};
-    use log::error;
-    use std::time::{Duration, Instant};
-    use std::collections::HashMap;
+    use super::{Color, LifxCodec, LifxError};
+    use crate::actor::{
+        network::{self, udp},
+        Actor, ActorRef, Context, Message, Receiver, Timer,
+    };
     use lifx_core::{get_product_info, BuildOptions, PowerLevel, RawMessage, HSBK};
+    use log::error;
+    use network::udp::Udp;
+    use std::collections::HashMap;
+    use std::net::SocketAddr;
+    use std::time::{Duration, Instant};
 
     // Actors
 
-    #[derive(Default)]
     pub struct Manager {
-        udp: Option<Udp<LifxCodec>>,
+        udp: Option<ActorRef<udp::Udp<LifxCodec>>>,
         bulbs: HashMap<u64, BulbInfo>,
+        broadcast_addr: SocketAddr,
+        source: u32,
     }
 
     struct BulbInfo {
@@ -541,9 +547,7 @@ pub mod actors {
 
     struct Bulb;
 
-    impl Actor for Bulb {
-
-    }
+    impl Actor for Bulb {}
 
     // Messages
 
@@ -570,7 +574,15 @@ pub mod actors {
                 .parse()
                 .expect("correct hardcoded broadcast address");
 
-            match network::udp::create(addr, LifxCodec, ctx.myself.clone()) {
+            let a: Result<ActorRef<Udp<LifxCodec>>, Box<dyn std::error::Error>> =
+                network::udp::create(addr, LifxCodec, ctx.myself.clone())
+                    .map_err(|e| e.into())
+                    .and_then(|actor| {
+                        ctx.actor_of("lifx/broadcast_socket", actor)
+                            .map_err(|e| e.into())
+                    });
+
+            match a {
                 Ok(udp) => self.udp = Some(udp),
                 Err(err) => error!(
                     "Can't create the UDP socket for LIFX communication: {:?}",
@@ -587,7 +599,26 @@ pub mod actors {
     }
 
     impl Manager {
-        fn discovery(&self) {}
+        pub fn new(broadcast_addr: SocketAddr) -> Manager {
+            Manager {
+                udp: None,
+                bulbs: HashMap::new(),
+                source: 0,
+                broadcast_addr,
+            }
+        }
+
+        fn discovery(&self) {
+            let opts = BuildOptions {
+                source: self.source,
+                ..Default::default()
+            };
+            let message = lifx_core::Message::GetService;
+
+            if let Some(udp) = &self.udp {
+                udp.send_msg(udp::Msg::Write((opts, message)))
+            }
+        }
 
         fn refresh(&self) {}
 
@@ -599,7 +630,7 @@ pub mod actors {
     // Receiver
 
     impl Receiver<Management> for Manager {
-        fn recv(&mut self, ctx: &Context<Self>, msg: Management) {
+        fn recv(&mut self, _ctx: &Context<Self>, msg: Management) {
             match msg {
                 Management::Discover => self.discovery(),
                 Management::Refresh => self.refresh(),
@@ -608,7 +639,7 @@ pub mod actors {
     }
 
     impl Receiver<Command> for Manager {
-        fn recv(&mut self, ctx: &Context<Self>, msg: Command) {
+        fn recv(&mut self, _ctx: &Context<Self>, msg: Command) {
             match msg {
                 Command::SetGroupBrightness { group, brightness } => {
                     self.set_group_brightness(group, brightness)
