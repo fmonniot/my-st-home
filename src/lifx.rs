@@ -1,8 +1,10 @@
+use bytes::BytesMut;
 use log::{debug, error, info, trace, warn};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use std::{net::SocketAddr, sync::Arc};
 use tokio::{net::UdpSocket, sync::RwLock, task::JoinHandle};
+use tokio_util::codec::{Decoder, Encoder};
 
 use lifx_core::{get_product_info, BuildOptions, Message, PowerLevel, RawMessage, HSBK};
 
@@ -229,7 +231,7 @@ async fn network_receive(
                         .or_insert_with(|| BulbInfo::new(source, raw.frame_addr.target, addr));
 
                     if let Err(e) = handle_bulb_message(raw, bulb) {
-                        error!("Error handling message from {}: {}", addr, e)
+                        error!("Error handling message from {}: {:?}", addr, e)
                     }
                 }
                 Err(error) => {
@@ -386,4 +388,338 @@ enum Color {
     Unknown,
     Single(Option<HSBK>),             // Regular bulb
     Multi(Option<Vec<Option<HSBK>>>), // strip, beam and candles
+}
+
+#[derive(Debug, Clone)]
+struct LifxCodec;
+
+#[derive(Debug, Clone)]
+enum LifxError {
+    /// This error means we were unable to parse a raw message because its type is unknown.
+    ///
+    /// LIFX devices are known to send messages that are not officially documented, so this error
+    /// type does not necessarily represent a bug.
+    UnknownMessageType(u16),
+
+    /// This error means one of the message fields contains an invalid or unsupported value.
+    ///
+    /// The inner string is a description of the error.
+    ProtocolError(String),
+    // serialize the underlying error to be able to make LifxError Clone
+    // TODO See if we can remove Clone from the Message trait, and only asks
+    // for it on demand (like in channel).
+    Io(String),
+}
+
+impl crate::actor::Message for LifxError {}
+
+impl std::convert::From<lifx_core::Error> for LifxError {
+    fn from(e: lifx_core::Error) -> Self {
+        match e {
+            lifx_core::Error::UnknownMessageType(u) => LifxError::UnknownMessageType(u),
+            lifx_core::Error::ProtocolError(s) => LifxError::ProtocolError(s),
+            lifx_core::Error::Io(e) => e.into(),
+        }
+    }
+}
+
+impl std::convert::From<std::io::Error> for LifxError {
+    fn from(e: std::io::Error) -> Self {
+        LifxError::Io(format!("{}", e))
+    }
+}
+
+impl Encoder<(BuildOptions, Message)> for LifxCodec {
+    type Error = LifxError;
+
+    fn encode(
+        &mut self,
+        (options, msg): (BuildOptions, Message),
+        dst: &mut BytesMut,
+    ) -> Result<(), Self::Error> {
+        let raw = RawMessage::build(&options, msg)?;
+
+        let bytes = raw.pack()?;
+
+        dst.extend_from_slice(&bytes);
+
+        Ok(())
+    }
+}
+
+impl Decoder for LifxCodec {
+    type Item = Message;
+    type Error = LifxError;
+
+    // TODO Manage frames over multiple packet (is it even possible with lify protocol ?)
+    // TODO Make sure we have correctly consumed the buffer
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        let raw = RawMessage::unpack(&src)?;
+        let msg = Message::from_raw(&raw)?;
+
+        Ok(Some(msg))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encode_and_decode() {
+        let options = BuildOptions {
+            target: Some(1),
+            res_required: true,
+            source: 2,
+            ..Default::default()
+        };
+
+        let orig_color = HSBK {
+            hue: 5,
+            saturation: 6,
+            brightness: 7,
+            kelvin: 8,
+        };
+        let message = Message::LightSetColor {
+            reserved: 0,
+            color: orig_color.clone(),
+            duration: 9, // ms ?
+        };
+
+        let mut buffer = BytesMut::new();
+        LifxCodec
+            .encode((options, message.clone()), &mut buffer)
+            .unwrap();
+        let res = LifxCodec.decode(&mut buffer);
+
+        match res {
+            Ok(Some(Message::LightSetColor {
+                reserved,
+                color,
+                duration,
+            })) => {
+                assert_eq!(reserved, 0);
+                assert_eq!(color, orig_color);
+                assert_eq!(duration, 9);
+            }
+            r => assert!(false, "result {:?} was not expected", r),
+        }
+    }
+}
+
+/// An alternative to the current implementation using actors
+/// instead of raw tokio's primitive.
+pub mod actors {
+
+    use super::{Color, LifxCodec, LifxError};
+    use crate::actor::{
+        network::{self, udp},
+        Actor, ActorRef, Context, Message, Receiver, Timer,
+    };
+    use lifx_core::{BuildOptions, PowerLevel};
+    use log::error;
+    use network::udp::Udp;
+    use std::collections::HashMap;
+    use std::net::SocketAddr;
+    use std::time::{Duration, Instant};
+
+    // Actors
+
+    pub struct Manager {
+        udp: Option<ActorRef<udp::Udp<LifxCodec>>>,
+        bulbs: HashMap<u64, BulbInfo>,
+        broadcast_addr: SocketAddr,
+        source: u32,
+    }
+
+    struct BulbInfo {
+        last_seen: Instant,
+        source: u32,
+        target: u64,
+        addr: ActorRef<Bulb>,
+        // Option because we need some network interaction before having this information
+        name: Option<String>,
+        location: Option<String>,
+        group: Option<String>,
+        power_level: Option<PowerLevel>,
+        color: Color,
+    }
+
+    struct Bulb {
+        target: u64,
+        source: u32,
+        remote: ActorRef<Udp<LifxCodec>>,
+    }
+
+    // Messages
+
+    #[derive(Debug, Clone)]
+    pub enum Management {
+        Discover,
+        Refresh,
+    }
+    impl Message for Management {}
+
+    #[derive(Debug, Clone)]
+    pub enum Command {
+        SetGroupBrightness { group: String, brightness: u16 },
+        GetGroupColors { group: String },
+    }
+    impl Message for Command {}
+
+    #[derive(Debug, Clone)]
+    enum BulbCommand {
+        Write(lifx_core::Message),
+    }
+    impl Message for BulbCommand {}
+
+    // Implementations
+
+    impl Actor for Manager {
+        fn pre_start(&mut self, ctx: &Context<Self>) {
+            // Create the UDP actor
+            let addr = "0.0.0.0:56700"
+                .parse()
+                .expect("correct hardcoded broadcast address");
+
+            let a: Result<ActorRef<Udp<LifxCodec>>, Box<dyn std::error::Error>> =
+                network::udp::create(addr, LifxCodec, ctx.myself.clone())
+                    .map_err(|e| e.into())
+                    .and_then(|actor| {
+                        ctx.actor_of("lifx/broadcast_socket", actor)
+                            .map_err(|e| e.into())
+                    });
+
+            match a {
+                Ok(udp) => self.udp = Some(udp),
+                Err(err) => error!(
+                    "Can't create the UDP socket for LIFX communication: {:?}",
+                    err
+                ),
+            };
+
+            // Set up refresh trigger
+            let delay = Duration::from_secs(9);
+            let _ = ctx.schedule(delay, delay, ctx.myself.clone(), Management::Refresh);
+        }
+
+        fn post_stop(&mut self, _ctx: &Context<Self>) {}
+    }
+
+    impl Manager {
+        pub fn new(broadcast_addr: SocketAddr) -> Manager {
+            Manager {
+                udp: None,
+                bulbs: HashMap::new(),
+                source: 0,
+                broadcast_addr,
+            }
+        }
+
+        fn discovery(&self) {
+            let opts = BuildOptions {
+                source: self.source,
+                ..Default::default()
+            };
+            let message = lifx_core::Message::GetService;
+
+            if let Some(udp) = &self.udp {
+                // TODO That means sendings to the local 0.0.0.0 address, which isn't what we want.
+                // Needs either a WriteTo command, which accept a target SocketAddr
+                // or to create a new udp actor.
+                // Thinking about it a bit more, having a WriteTo also remove the needs to have
+                // children UDP actors per bulb on the network. Might make it easier to reason
+                // about.
+                udp.send_msg(udp::Msg::Write((opts, message)))
+            }
+        }
+
+        fn refresh(&self) {
+            // First make a list of all the messages we want to send
+            let messages = vec![
+                lifx_core::Message::GetLabel,
+                lifx_core::Message::GetLocation,
+                lifx_core::Message::GetGroup,
+                lifx_core::Message::GetVersion,
+                lifx_core::Message::GetPower,
+                lifx_core::Message::LightGet,
+            ];
+
+            // Then iterate on each bulb and send them said messages
+            for (_, bulb) in &self.bulbs {
+                for message in &messages {
+                    bulb.addr.send_msg(BulbCommand::Write(message.clone()))
+                }
+            }
+        }
+
+        fn set_group_brightness(&self, _group: String, _brightness: u16) {}
+
+        fn get_group_colors(&self, _group: String) {}
+    }
+
+    impl Actor for Bulb {}
+
+    impl Bulb {
+        fn build_options(&self) -> BuildOptions {
+            BuildOptions {
+                target: Some(self.target),
+                res_required: true,
+                source: self.source,
+                ..Default::default()
+            }
+        }
+    }
+
+    // Receiver
+
+    impl Receiver<Management> for Manager {
+        fn recv(&mut self, _ctx: &Context<Self>, msg: Management) {
+            match msg {
+                Management::Discover => self.discovery(),
+                Management::Refresh => self.refresh(),
+            }
+        }
+    }
+
+    impl Receiver<Command> for Manager {
+        fn recv(&mut self, _ctx: &Context<Self>, msg: Command) {
+            match msg {
+                Command::SetGroupBrightness { group, brightness } => {
+                    self.set_group_brightness(group, brightness)
+                }
+                Command::GetGroupColors { group } => self.get_group_colors(group),
+            }
+        }
+    }
+
+    impl Receiver<UdpMessage> for Manager {
+        fn recv(&mut self, _ctx: &Context<Self>, msg: UdpMessage) {
+            match msg {
+                Ok((_message, _addr)) => {
+                    // TODO Find or create the bulb actor
+                }
+                Err(error) => {
+                    error!("Error handling message: {:?}", error)
+                }
+            }
+        }
+    }
+
+    impl Receiver<BulbCommand> for Bulb {
+        fn recv(&mut self, _ctx: &Context<Self>, msg: BulbCommand) {
+            match msg {
+                BulbCommand::Write(message) => self
+                    .remote
+                    .send_msg(udp::Msg::Write((self.build_options(), message))),
+            }
+        }
+    }
+
+    // Help the compiler inferring the Message trait for some types
+    type UdpSend = (lifx_core::BuildOptions, lifx_core::Message);
+    impl Message for UdpSend {}
+    impl Message for lifx_core::Message {}
+
+    type UdpMessage = std::result::Result<(lifx_core::Message, std::net::SocketAddr), LifxError>;
 }
