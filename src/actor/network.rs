@@ -37,7 +37,7 @@ pub mod udp {
     // name that Command ?
     #[derive(Debug, Clone)]
     pub enum Msg<I: Message> {
-        Write(I),
+        WriteTo(I, SocketAddr),
     }
 
     impl<I: Message> Message for Msg<I> {}
@@ -46,7 +46,6 @@ pub mod udp {
     where
         C: Decoder,
     {
-        addr: SocketAddr,
         write: WriteFramedUdp<C>,
         // This field is only used to pass the stream between the struct creation
         // and the actor starting. At which point the stream will be taken
@@ -73,7 +72,7 @@ pub mod udp {
         // Blocking here should be ok-ish, as the async process is mostly on resolving addresses
         // which me don't really do in this project (we use IP addresses only in UDP)
         let handle = tokio::runtime::Handle::current();
-        let socket = handle.block_on(UdpSocket::bind(addr.clone()))?;
+        let socket = handle.block_on(UdpSocket::bind(addr))?;
 
         // TODO Let's not do that. Instead, let's have our own framed struct which take an
         // Arc<UdpSocket> and do only the read part (impl Stream only).
@@ -86,7 +85,6 @@ pub mod udp {
         };
 
         Ok(Udp {
-            addr,
             write,
             read: Some(read),
             stream_handle: None,
@@ -119,8 +117,7 @@ pub mod udp {
     {
         fn recv(&mut self, _ctx: &Context<Self>, msg: Msg<Out>) {
             match msg {
-                Msg::Write(item) => {
-                    let addr = self.addr.clone();
+                Msg::WriteTo(item, addr) => {
                     let mut w = self.write.clone();
 
                     tokio::spawn(async move {

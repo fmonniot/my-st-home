@@ -536,19 +536,13 @@ pub mod actors {
         last_seen: Instant,
         source: u32,
         target: u64,
-        addr: ActorRef<Bulb>,
+        address: SocketAddr,
         // Option because we need some network interaction before having this information
         name: Option<String>,
         location: Option<String>,
         group: Option<String>,
         power_level: Option<PowerLevel>,
         color: Color,
-    }
-
-    struct Bulb {
-        target: u64,
-        source: u32,
-        remote: ActorRef<Udp<LifxCodec>>,
     }
 
     // Messages
@@ -567,21 +561,17 @@ pub mod actors {
     }
     impl Message for Command {}
 
-    #[derive(Debug, Clone)]
-    enum BulbCommand {
-        Write(lifx_core::Message),
-    }
-    impl Message for BulbCommand {}
-
     // Implementations
 
     impl Actor for Manager {
         fn pre_start(&mut self, ctx: &Context<Self>) {
-            // Create the UDP actor
+            // Socket to listen on. We want to receive everything from the network
+            // on the LIFX port (56700).
             let addr = "0.0.0.0:56700"
                 .parse()
                 .expect("correct hardcoded broadcast address");
 
+            // Create the UDP actor
             let a: Result<ActorRef<Udp<LifxCodec>>, Box<dyn std::error::Error>> =
                 network::udp::create(addr, LifxCodec, ctx.myself.clone())
                     .map_err(|e| e.into())
@@ -624,13 +614,7 @@ pub mod actors {
             let message = lifx_core::Message::GetService;
 
             if let Some(udp) = &self.udp {
-                // TODO That means sendings to the local 0.0.0.0 address, which isn't what we want.
-                // Needs either a WriteTo command, which accept a target SocketAddr
-                // or to create a new udp actor.
-                // Thinking about it a bit more, having a WriteTo also remove the needs to have
-                // children UDP actors per bulb on the network. Might make it easier to reason
-                // about.
-                udp.send_msg(udp::Msg::Write((opts, message)))
+                udp.send_msg(udp::Msg::WriteTo((opts, message), self.broadcast_addr))
             }
         }
 
@@ -648,7 +632,10 @@ pub mod actors {
             // Then iterate on each bulb and send them said messages
             for (_, bulb) in &self.bulbs {
                 for message in &messages {
-                    bulb.addr.send_msg(BulbCommand::Write(message.clone()))
+                    if let Some(udp) = &self.udp {
+                        let m = (bulb.build_options(), message.clone());
+                        udp.send_msg(udp::Msg::WriteTo(m, bulb.address))
+                    }
                 }
             }
         }
@@ -658,9 +645,7 @@ pub mod actors {
         fn get_group_colors(&self, _group: String) {}
     }
 
-    impl Actor for Bulb {}
-
-    impl Bulb {
+    impl BulbInfo {
         fn build_options(&self) -> BuildOptions {
             BuildOptions {
                 target: Some(self.target),
@@ -702,16 +687,6 @@ pub mod actors {
                 Err(error) => {
                     error!("Error handling message: {:?}", error)
                 }
-            }
-        }
-    }
-
-    impl Receiver<BulbCommand> for Bulb {
-        fn recv(&mut self, _ctx: &Context<Self>, msg: BulbCommand) {
-            match msg {
-                BulbCommand::Write(message) => self
-                    .remote
-                    .send_msg(udp::Msg::Write((self.build_options(), message))),
             }
         }
     }
