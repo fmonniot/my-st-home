@@ -61,6 +61,7 @@ pub mod udp {
         addr: SocketAddr,
         codec: C,
         target: ActorRef<A>,
+        is_broadcast: bool,
     ) -> Result<Udp<C>, CreationError>
     where
         C: Decoder<Item = Out> + Encoder<In> + Unpin + Clone,
@@ -73,6 +74,8 @@ pub mod udp {
         // which me don't really do in this project (we use IP addresses only in UDP)
         let handle = tokio::runtime::Handle::current();
         let socket = handle.block_on(UdpSocket::bind(addr))?;
+
+        socket.set_broadcast(is_broadcast)?;
 
         // TODO Let's not do that. Instead, let's have our own framed struct which take an
         // Arc<UdpSocket> and do only the read part (impl Stream only).

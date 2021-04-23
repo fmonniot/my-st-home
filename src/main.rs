@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let system = actor::ActorSystem::new();
     let _sensors_actor = system
-        .default_actor_of::<sensors::actors::Sensors>("sensors/luminosity")
+        .default_actor_of::<sensors::actors::Sensors>("sensors")
         .unwrap();
 
     let broadcast_addr: SocketAddr = "192.168.1.255:56700"
@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create our background processors (lifx, screen, mqtt, ST events)
     let s_task = mqtt::spawn(&cfg).await?;
     let (screen_task, window_run_loop) = screen::spawn();
-    let lifx = lifx::spawn().await?;
+    let lifx = lifx::spawn().await?; // TODO Use actor instead
     let sensors = sensors::spawn();
 
     let screen_handle = screen_task.handle();

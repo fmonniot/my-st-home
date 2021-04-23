@@ -6,7 +6,9 @@ use std::{net::SocketAddr, sync::Arc};
 use tokio::{net::UdpSocket, sync::RwLock, task::JoinHandle};
 use tokio_util::codec::{Decoder, Encoder};
 
-use lifx_core::{get_product_info, BuildOptions, Message, PowerLevel, RawMessage, HSBK};
+use lifx_core::{
+    get_product_info, BuildOptions, FrameAddress, Message, PowerLevel, RawMessage, HSBK,
+};
 
 // API with the underlying lifx machinery
 pub struct LifxHandle {
@@ -448,7 +450,7 @@ impl Encoder<(BuildOptions, Message)> for LifxCodec {
 }
 
 impl Decoder for LifxCodec {
-    type Item = Message;
+    type Item = (FrameAddress, Message);
     type Error = LifxError;
 
     // TODO Manage frames over multiple packet (is it even possible with lify protocol ?)
@@ -457,7 +459,7 @@ impl Decoder for LifxCodec {
         let raw = RawMessage::unpack(&src)?;
         let msg = Message::from_raw(&raw)?;
 
-        Ok(Some(msg))
+        Ok(Some((raw.frame_addr, msg)))
     }
 }
 
@@ -493,11 +495,15 @@ mod tests {
         let res = LifxCodec.decode(&mut buffer);
 
         match res {
-            Ok(Some(Message::LightSetColor {
-                reserved,
-                color,
-                duration,
-            })) => {
+            Ok(Some((
+                FrameAddress { target, .. },
+                Message::LightSetColor {
+                    reserved,
+                    color,
+                    duration,
+                },
+            ))) => {
+                assert_eq!(target, 1);
                 assert_eq!(reserved, 0);
                 assert_eq!(color, orig_color);
                 assert_eq!(duration, 9);
@@ -516,8 +522,8 @@ pub mod actors {
         network::{self, udp},
         Actor, ActorRef, Context, Message, Receiver, Timer,
     };
-    use lifx_core::{BuildOptions, PowerLevel};
-    use log::error;
+    use lifx_core::{get_product_info, BuildOptions, PowerLevel, HSBK};
+    use log::{debug, error, trace, warn};
     use network::udp::Udp;
     use std::collections::HashMap;
     use std::net::SocketAddr;
@@ -532,6 +538,7 @@ pub mod actors {
         source: u32,
     }
 
+    #[derive(Debug)]
     struct BulbInfo {
         last_seen: Instant,
         source: u32,
@@ -557,7 +564,6 @@ pub mod actors {
     #[derive(Debug, Clone)]
     pub enum Command {
         SetGroupBrightness { group: String, brightness: u16 },
-        GetGroupColors { group: String },
     }
     impl Message for Command {}
 
@@ -573,7 +579,7 @@ pub mod actors {
 
             // Create the UDP actor
             let a: Result<ActorRef<Udp<LifxCodec>>, Box<dyn std::error::Error>> =
-                network::udp::create(addr, LifxCodec, ctx.myself.clone())
+                network::udp::create(addr, LifxCodec, ctx.myself.clone(), true)
                     .map_err(|e| e.into())
                     .and_then(|actor| {
                         ctx.actor_of("lifx/broadcast_socket", actor)
@@ -591,6 +597,9 @@ pub mod actors {
             // Set up refresh trigger
             let delay = Duration::from_secs(9);
             let _ = ctx.schedule(delay, delay, ctx.myself.clone(), Management::Refresh);
+
+            // trigger discovery
+            ctx.myself.send_msg(Management::Discover);
         }
 
         fn post_stop(&mut self, _ctx: &Context<Self>) {}
@@ -598,10 +607,12 @@ pub mod actors {
 
     impl Manager {
         pub fn new(broadcast_addr: SocketAddr) -> Manager {
+            let source = 0x72757374;
+
             Manager {
                 udp: None,
                 bulbs: HashMap::new(),
-                source: 0,
+                source,
                 broadcast_addr,
             }
         }
@@ -640,12 +651,104 @@ pub mod actors {
             }
         }
 
-        fn set_group_brightness(&self, _group: String, _brightness: u16) {}
+        /*
+            LIFX level:
+            1% in the app gave:
+            HSBK { hue: 7461, saturation: 0, brightness: 1966, kelvin: 3500 }
 
-        fn get_group_colors(&self, _group: String) {}
+            100% in the app gave:
+            HSBK { hue: 7461, saturation: 0, brightness: 65535, kelvin: 3500 }
+
+            So HSBK.brightness is the only interesting part, and it goes from 0 to 65535 (16 bytes)
+        */
+        fn set_group_brightness(&self, group: String, brightness: u16) {
+            let colors = self.get_group_colors(&group);
+            trace!("set_group_brightness. group={}, colors={:?}", group, colors);
+
+            for (target, source, mut color, power_level, addr) in colors {
+                let options = BuildOptions {
+                    target: Some(target),
+                    res_required: true,
+                    source: source,
+                    ..Default::default()
+                };
+
+                color.brightness = brightness;
+
+                let message = lifx_core::Message::LightSetColor {
+                    reserved: 0,
+                    color,
+                    duration: 5, // ms ?
+                };
+
+                debug!(
+                    "Sending brightness change. brightness={:?}, addr={:?}",
+                    brightness, addr
+                );
+                if let Some(socket) = &self.udp {
+                    socket.send_msg(udp::Msg::WriteTo((options.clone(), message), addr));
+                }
+
+                // Brightness needs to be at least 1000 otherwise we turn on/off the bulb
+                let turn = power_level.and_then(|p| match p {
+                    PowerLevel::Enabled if brightness <= 1000 => Some(PowerLevel::Standby),
+                    PowerLevel::Standby if brightness >= 1000 => Some(PowerLevel::Enabled),
+                    _ => None,
+                });
+
+                if let Some(level) = turn {
+                    let message = lifx_core::Message::SetPower { level };
+
+                    debug!(
+                        "Sending power level change. level={:?}, addr={:?}",
+                        level, addr
+                    );
+                    if let Some(socket) = &self.udp {
+                        socket.send_msg(udp::Msg::WriteTo((options, message), addr));
+                    }
+                }
+            }
+        }
+
+        fn get_group_colors(
+            &self,
+            group: &String,
+        ) -> Vec<(u64, u32, HSBK, Option<PowerLevel>, SocketAddr)> {
+            self.bulbs
+                .values()
+                .filter(|b| match &b.group {
+                    Some(b) => b == group,
+                    None => false,
+                })
+                .filter_map(|bulb| match bulb.color {
+                    Color::Single(Some(hsbk)) => Some((
+                        bulb.target,
+                        bulb.source,
+                        hsbk,
+                        bulb.power_level,
+                        bulb.address,
+                    )),
+                    _ => None,
+                })
+                .collect()
+        }
     }
 
     impl BulbInfo {
+        fn new(source: u32, target: u64, address: SocketAddr) -> BulbInfo {
+            BulbInfo {
+                last_seen: Instant::now(),
+                source,
+                target,
+                address,
+                name: None,
+                location: None,
+                group: None,
+                power_level: None,
+                color: Color::Unknown,
+            }
+        }
+
         fn build_options(&self) -> BuildOptions {
             BuildOptions {
                 target: Some(self.target),
@@ -653,6 +756,11 @@ pub mod actors {
                 source: self.source,
                 ..Default::default()
             }
+        }
+
+        fn update(&mut self, address: SocketAddr) {
+            self.last_seen = Instant::now();
+            self.address = address;
         }
     }
 
@@ -673,7 +781,6 @@ pub mod actors {
                 Command::SetGroupBrightness { group, brightness } => {
                     self.set_group_brightness(group, brightness)
                 }
-                Command::GetGroupColors { group } => self.get_group_colors(group),
             }
         }
     }
@@ -681,8 +788,23 @@ pub mod actors {
     impl Receiver<UdpMessage> for Manager {
         fn recv(&mut self, _ctx: &Context<Self>, msg: UdpMessage) {
             match msg {
-                Ok((_message, _addr)) => {
-                    // TODO Find or create the bulb actor
+                Ok(((frame_addr, message), addr)) => {
+                    // A target of zero means that message target all devices
+                    // (broadcast style). We aren't a device, so we skip over
+                    // those messages.
+                    if frame_addr.target == 0 {
+                        debug!("frame_addr.target == 0 for message={:?}", message);
+                        return;
+                    }
+
+                    let source = self.source;
+                    let bulb = self
+                        .bulbs
+                        .entry(frame_addr.target)
+                        .and_modify(|bulb| bulb.update(addr))
+                        .or_insert_with(|| BulbInfo::new(source, frame_addr.target, addr));
+
+                    handle_bulb_message(bulb, message);
                 }
                 Err(error) => {
                     error!("Error handling message: {:?}", error)
@@ -691,10 +813,65 @@ pub mod actors {
         }
     }
 
+    fn handle_bulb_message(bulb: &mut BulbInfo, message: lifx_core::Message) {
+        trace!(
+            "Handling message from bulb. message={:?}; bulb={:?}",
+            message,
+            bulb
+        );
+        match message {
+            lifx_core::Message::StateService { port, service } => {
+                if port != bulb.address.port() as u32 {
+                    warn!("Unsupported service: {:?}/{}", service, port);
+                }
+            }
+            lifx_core::Message::StateVersion {
+                vendor, product, ..
+            } => {
+                //bulb.model.update((vendor, product));
+                if let Some(info) = get_product_info(vendor, product) {
+                    if info.multizone {
+                        bulb.color = Color::Multi(None)
+                    } else {
+                        bulb.color = Color::Single(None)
+                    }
+                }
+            }
+            lifx_core::Message::StateLabel { label } => bulb.name = Some(label.0),
+            lifx_core::Message::StateLocation { label, .. } => bulb.location = Some(label.0),
+            lifx_core::Message::StateGroup { label, .. } => bulb.group = Some(label.0),
+            lifx_core::Message::LightState {
+                color,
+                power,
+                label,
+                ..
+            } => {
+                // TODO What to do on unknown
+                if let Color::Single(ref mut d) = bulb.color {
+                    d.replace(color);
+
+                    bulb.power_level = Some(power);
+                }
+                bulb.name = Some(label.0);
+            }
+            lifx_core::Message::StatePower { level } => bulb.power_level = Some(level),
+            unsupported => {
+                debug!("Received unsupported message: {:?}", unsupported);
+            }
+        };
+    }
+
     // Help the compiler inferring the Message trait for some types
     type UdpSend = (lifx_core::BuildOptions, lifx_core::Message);
     impl Message for UdpSend {}
     impl Message for lifx_core::Message {}
+    impl Message for (lifx_core::FrameAddress, lifx_core::Message) {}
 
-    type UdpMessage = std::result::Result<(lifx_core::Message, std::net::SocketAddr), LifxError>;
+    type UdpMessage = std::result::Result<
+        (
+            (lifx_core::FrameAddress, lifx_core::Message),
+            std::net::SocketAddr,
+        ),
+        LifxError,
+    >;
 }
