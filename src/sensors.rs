@@ -12,7 +12,13 @@ pub mod actors {
     pub const SENSORS_CHANNEL_NAME: &str = "sensors/luminosity";
 
     #[derive(Debug, Clone)]
-    struct BroadcastedSensorRead(Luminosity);
+    pub struct BroadcastedSensorRead(Luminosity);
+
+    impl BroadcastedSensorRead {
+        pub fn lux(&self) -> f32 {
+            self.0.lux
+        }
+    }
 
     #[derive(Debug, Clone)]
     pub enum SensorsMessage {

@@ -2,6 +2,7 @@ mod actor;
 mod configuration;
 mod delay;
 mod lifx;
+mod logic;
 mod mqtt;
 mod screen;
 mod sensors;
@@ -37,8 +38,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .parse()
         .expect("correct hardcoded broadcast address");
 
-    let _lifx_actor = system
+    let lifx_actor = system
         .actor_of("lifx", lifx::actors::Manager::new(broadcast_addr))
+        .unwrap();
+
+    let _adaptive_brightness = system
+        .actor_of("logic/adaptive", logic::brightness::new(lifx_actor))
         .unwrap();
 
     // Create our background processors (lifx, screen, mqtt, ST events)
@@ -97,121 +102,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     s_task.join().await?;
 
     Ok(())
-}
-
-mod logic {
-    use crate::{lifx::LifxHandle, mqtt::Command};
-    use crate::{mqtt::DeviceEvent, screen::ScreenHandle, sensors::SensorMessage};
-    use futures::{Sink, SinkExt, Stream, StreamExt};
-    use log::{debug, trace, warn};
-    use std::sync::Arc;
-    use tokio::sync::RwLock;
-    use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
-
-    pub(super) async fn st_light_state<St, Si>(
-        mut commands: St,
-        events: Si,
-        lifx: LifxHandle,
-        light_state: Arc<RwLock<bool>>,
-        _screen: ScreenHandle,
-    ) where
-        St: Stream<Item = Result<Command, BroadcastStreamRecvError>> + Unpin,
-        Si: Sink<DeviceEvent>,
-    {
-        let mut events = Box::pin(events);
-        while let Some(message) = commands.next().await {
-            match message {
-                Err(error) => {
-                    warn!("Cannot pull command. error={:?}", error);
-                }
-                Ok(command) => {
-                    // TODO Correctly handle different type of command
-                    let switch = &command.command == "on";
-
-                    let current = { *light_state.read().await };
-
-                    debug!(
-                        "Received command '{}', current state is '{}'",
-                        switch, current
-                    );
-                    if switch != current {
-                        // Change light_state
-                        {
-                            let mut s = light_state.write().await;
-                            *s = switch;
-                        }
-
-                        let value = if switch { "on" } else { "off" };
-
-                        // Send device event
-                        debug!("Sending device event with value '{}'", value);
-                        match events
-                            .send(DeviceEvent::simple_str("main", "switch", "switch", value))
-                            .await
-                        {
-                            Ok(()) => (),
-                            Err(_) => {
-                                warn!("Error sending device event"); // TODO Error
-                            }
-                        }
-
-                        // Change lifx power level
-                        // TODO Don't change the brightness setting, only power
-                        lifx.set_group_brightness("Living Room - Desk", 0).await;
-                    }
-                }
-            }
-        }
-    }
-
-    pub(super) async fn adaptive_brightness<S>(
-        mut sensors: S,
-        lifx: LifxHandle,
-        light_state: Arc<RwLock<bool>>,
-        screen: ScreenHandle,
-    ) where
-        S: Stream<Item = Result<SensorMessage, BroadcastStreamRecvError>> + Unpin,
-    {
-        debug!("Starting sensors run loop");
-
-        // TODO Needs to make that configurable without code change
-        let mut controller = pid_lite::Controller::new(80.0, 100.0, 0.01, 0.01);
-        let mut brightness_command: u16 = 1000;
-
-        while let Some(message) = sensors.next().await {
-            if !*light_state.read().await {
-                debug!("light turned off, skipping sensor message");
-                continue;
-            }
-
-            match message {
-                Ok(SensorMessage::Luminosity { lux, .. }) => {
-                    let correction = controller.update(lux as f64);
-                    let next_bright = brightness_command as f64 + correction;
-                    trace!("next_bright after correction: {}", next_bright);
-
-                    let brightness = match next_bright.round() as i64 {
-                        n if n < 0 => 0,
-                        n if n <= std::u16::MAX as i64 => n as u16,
-                        _ => std::u16::MAX,
-                    };
-
-                    // let brightness = lux_to_brightness(lux);
-
-                    debug!("Setting brightness to {}", brightness);
-                    brightness_command = brightness;
-                    lifx.set_group_brightness("Living Room - Desk", brightness)
-                        .await;
-                    screen
-                        .update_group_brightness("Living Room - Desk", brightness)
-                        .unwrap(); // TODO Error handling
-                }
-                Err(error) => {
-                    warn!("Cannot pull sensor data. error={:?}", error);
-                }
-            }
-        }
-
-        debug!("Stopped sensors run loop");
-    }
 }

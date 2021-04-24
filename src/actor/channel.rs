@@ -25,21 +25,23 @@ where
         })
     }
 
-    pub fn subscribe_to<A>(&self, actor: ActorRef<A>, topic: Topic)
+    pub fn subscribe_to<A, T>(&self, actor: ActorRef<A>, topic: T)
     where
         A: Receiver<M>,
+        T: Into<Topic>,
     {
         let path = actor.path().to_string();
         let b = Box::new(move |m: M| {
             actor.send_msg(m.clone());
         });
         self.0.send_msg(ChannelMsg::Subscribe {
-            topic,
+            topic: topic.into(),
             path,
             send: Arc::new(b),
         })
     }
 
+    #[allow(unused)]
     pub fn unsuscribe_from<A>(&self, actor: &ActorRef<A>, topic: Topic)
     where
         A: Receiver<M>,
@@ -50,6 +52,7 @@ where
         })
     }
 
+    #[allow(unused)]
     pub fn unsuscribe_all<A>(&self, actor: &ActorRef<A>)
     where
         A: Receiver<M>,
@@ -212,7 +215,7 @@ fn unsubscribe<M>(
     M: Message,
 {
     if let Some(actors) = subscriptions.get_mut(topic) {
-        let p = actors.iter().position(|(p, send)| p == path);
+        let p = actors.iter().position(|(p, _)| p == path);
         if let Some(index) = p {
             actors.remove(index);
         }
