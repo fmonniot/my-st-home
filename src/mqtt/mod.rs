@@ -9,7 +9,7 @@ use uuid::Uuid;
 use super::Configuration;
 
 mod client;
-mod smartthings;
+mod jwt;
 
 // We need to keep the broadcast::sender to be able to create new receiver at will
 pub struct STask {
@@ -86,7 +86,7 @@ pub(super) async fn spawn(cfg: &Configuration) -> Result<STask, Box<dyn std::err
     }
 
     debug!("Configuration: {:#?}\n", cfg);
-    let jwt = smartthings::jwt::generate(&cfg)?;
+    let jwt = jwt::generate(&cfg)?;
 
     //
     // Hack something for MQTT and then try to find a good abstraction for other to use
