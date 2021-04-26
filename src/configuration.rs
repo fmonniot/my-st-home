@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{fs::File, io::BufReader, path::Path};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Configuration {
     pub device_info: DeviceInfo,
     pub stcli: StCli,
@@ -45,14 +45,14 @@ fn read_json_from_file<P: AsRef<Path>, T: serde::de::DeserializeOwned>(
     Ok(t)
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceInfoFile {
     pub device_info: DeviceInfo,
     pub stcli: StCli,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceInfo {
     pub firmware_version: String,
@@ -61,25 +61,25 @@ pub struct DeviceInfo {
     pub serial_number: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct StCli {
     pub device_id: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct MetaFile {
     pub location_id: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 struct OnboardingConfigFile {
     onboarding_config: OnboardingConfig,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct OnboardingConfig {
     pub device_onboarding_id: String,
@@ -91,7 +91,7 @@ pub struct OnboardingConfig {
     device_integration_profile_key: DipKey,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DipKey {
     id: String,

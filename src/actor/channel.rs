@@ -145,6 +145,8 @@ impl<S: Into<String>> From<S> for Topic {
     }
 }
 
+// TODO After migration the app to actors entirely, revisit if topic name
+// make sense or if a type-based approach is enough.
 pub struct Channel<M: Message> {
     subscriptions: HashMap<Topic, Vec<(String, SendMessage<M>)>>,
 }

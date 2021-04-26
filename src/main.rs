@@ -6,6 +6,7 @@ mod logic;
 mod mqtt;
 mod screen;
 mod sensors;
+mod smartthings;
 
 #[cfg(target_os = "linux")]
 mod tsl_2591;
@@ -20,6 +21,13 @@ pub(crate) use configuration::Configuration;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
+    // TODO Should be part of the configuration, or at least the interface
+    // should be. We can determine the broadcast address from it. Maybe
+    // with default iface set to wifi ?
+    let broadcast_addr: SocketAddr = "192.168.1.255:56700"
+        .parse()
+        .expect("correct hardcoded broadcast address");
+
     // TODO Change the .with_file_name to not have to pass a dummy file name here
     #[cfg(target_os = "linux")]
     let cfg = Configuration::from_directory("/home/pi/.mysthome/nothing")?;
@@ -30,13 +38,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let system = actor::ActorSystem::new();
+
+    let smartthings = smartthings::new(cfg.clone())?;
+    let smartthings = system.actor_of("smartthings", smartthings).unwrap();
+
+    //smartthings.send_msg(smartthings::Cmd::Publish(event))
+
     let _sensors_actor = system
         .default_actor_of::<sensors::actors::Sensors>("sensors")
         .unwrap();
-
-    let broadcast_addr: SocketAddr = "192.168.1.255:56700"
-        .parse()
-        .expect("correct hardcoded broadcast address");
 
     let lifx_actor = system
         .actor_of("lifx", lifx::actors::Manager::new(broadcast_addr))

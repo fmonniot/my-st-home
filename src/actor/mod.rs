@@ -63,6 +63,26 @@ impl<A: Actor> ActorRef<A> {
     pub fn path(&self) -> &str {
         &self.path
     }
+
+    /// Register a Stream to the actor mailbox.
+    pub fn subscribe_to_stream<S>(&self, stream: S) -> StreamHandle
+    where
+        S: futures::Stream + 'static + Unpin + Send,
+        S::Item: Message,
+        A: Receiver<S::Item>,
+    {
+        let receiver = self.clone();
+        let handle = tokio::spawn(async move {
+            use futures::StreamExt;
+            let mut stream = stream;
+
+            while let Some(msg) = stream.next().await {
+                receiver.send_msg(msg);
+            }
+        });
+
+        StreamHandle { handle }
+    }
 }
 
 impl<A: Actor> fmt::Debug for ActorRef<A> {
@@ -137,24 +157,14 @@ where
         self.system.channel()
     }
 
-    /// Register a Stream to the actor context.
-    fn subscribe_to_stream<S>(&self, stream: S) -> StreamHandle
+    /// Register a Stream to the actor mailbox.
+    pub fn subscribe_to_stream<S>(&self, stream: S) -> StreamHandle
     where
         S: futures::Stream + 'static + Unpin + Send,
         S::Item: Message,
         A: Receiver<S::Item>,
     {
-        let receiver = self.myself.clone();
-        let handle = tokio::spawn(async move {
-            use futures::StreamExt;
-            let mut stream = stream;
-
-            while let Some(msg) = stream.next().await {
-                receiver.send_msg(msg);
-            }
-        });
-
-        StreamHandle { handle }
+        self.myself.subscribe_to_stream(stream)
     }
 }
 
