@@ -41,8 +41,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let smartthings = smartthings::new(cfg.clone())?;
     let smartthings = system.actor_of("smartthings", smartthings).unwrap();
-
-    //smartthings.send_msg(smartthings::Cmd::Publish(event))
+    
+    smartthings.send_msg(smartthings::Cmd::Connect);
 
     let _sensors_actor = system
         .default_actor_of::<sensors::actors::Sensors>("sensors")
@@ -52,8 +52,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .actor_of("lifx", lifx::actors::Manager::new(broadcast_addr))
         .unwrap();
 
-    let _adaptive_brightness = system
-        .actor_of("logic/adaptive", logic::brightness::new(lifx_actor))
+    let adaptive_brightness = system
+        .actor_of("logic/adaptive", logic::brightness::new(lifx_actor.clone()))
+        .unwrap();
+
+    let _st_state = system
+        .actor_of("logic/st_state", logic::st_state::new(
+            adaptive_brightness, lifx_actor, smartthings
+        ))
         .unwrap();
 
     // Create our background processors (lifx, screen, mqtt, ST events)
