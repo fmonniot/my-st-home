@@ -15,7 +15,11 @@ use epd_waveshare::{color::*, epd7in5_v2::Display7in5, graphics::Display};
 
 use log::{debug, warn};
 use tokio::task::JoinHandle;
+
+mod actor;
 mod screen;
+
+pub use actor::{new, UserInterface};
 
 use screen::Screen;
 
@@ -61,7 +65,7 @@ impl ScreenHandle {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ScreenMessage {
     UpdateLifxBulb { source: u32, power: bool },
     UpdateLifxGroup { group: String, brightness: u16 },
@@ -152,6 +156,7 @@ fn draw_text<D: DrawTarget<BinaryColor>>(display: &mut D, text: &str, x: i32, y:
 
 /// Frame is the representation of what is on screen.
 /// It is also a state machine and define what the next frame will be based on a [ScreenMessage]
+#[derive(Debug, Clone)]
 enum Frame {
     Calibration, // To test out the implementation, needs to be changed to something meaningful :)
 }

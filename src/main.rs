@@ -62,6 +62,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ))
         .unwrap();
 
+    let (screen, window_run_loop) = screen::new();
+    let screen = system.actor_of("screen", screen).unwrap();
+
     // Create our background processors (lifx, screen, mqtt, ST events)
     let s_task = mqtt::spawn(&cfg).await?;
     let (screen_task, window_run_loop) = screen::spawn();

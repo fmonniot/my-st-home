@@ -1,75 +1,60 @@
 //! An abstraction around the actual screen:
 //! - e-ink device for raspberry pi, and
 //! - embedded-graphics simulator for mac os.
-use std::fmt::Debug;
-
-use embedded_hal::blocking::delay::DelayMs;
-
-pub trait Screen {
-    type Error: Debug;
-
-    /// Let the device enter deep-sleep mode to save power.
-    ///
-    /// The deep sleep mode returns to standby with a hardware reset.
-    fn sleep(&mut self) -> Result<(), Self::Error>;
-
-    /// Wakes the device up from sleep
-    ///
-    /// Also reintialises the device if necessary.
-    fn wake_up<DELAY: DelayMs<u8>>(&mut self, delay: &mut DELAY) -> Result<(), Self::Error>;
-
-    /// Provide a combined update&display and save some time (skipping a busy check in between)
-    fn update_and_display_frame(&mut self, buffer: &[u8]) -> Result<(), Self::Error>;
-
-    /// Clears the frame buffer on the EPD with the declared background color
-    ///
-    /// The background color can be changed with [`WaveshareDisplay::set_background_color`]
-    fn clear_frame(&mut self) -> Result<(), Self::Error>;
-}
 
 #[cfg(target_os = "linux")]
-pub fn create() -> Result<(impl Screen, impl FnOnce() -> ()), ()> {
+pub use rasp::Screen;
+
+#[cfg(not(target_os = "linux"))]
+pub use mac::Screen;
+
+#[cfg(target_os = "linux")]
+pub fn create() -> Result<(Screen, impl FnOnce() -> ()), ()> {
     let s = rasp::create();
+
+    Ok(s)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn create() -> Result<(Screen, impl FnOnce() -> ()), ()> {
+    let s = mac::create();
 
     Ok(s)
 }
 
 #[cfg(target_os = "linux")]
 mod rasp {
-    use super::Screen;
     use crate::delay::Delay;
     use embedded_hal::blocking::delay::DelayMs;
     use epd_waveshare::{epd7in5_v2::EPD7in5, prelude::*};
     use rppal::gpio::{Gpio, InputPin, OutputPin};
-    use rppal::spi::{Bus, Mode, SlaveSelect, Spi};
+    use rppal::spi::{Bus, Error, Mode, SlaveSelect, Spi};
 
-    pub struct EdpScreen {
+    pub struct Screen {
         spi: Spi,
         screen: EPD7in5<Spi, OutputPin, InputPin, OutputPin, OutputPin>,
     }
 
-    impl Screen for EdpScreen {
-        type Error = rppal::spi::Error;
-
-        fn sleep(&mut self) -> Result<(), Self::Error> {
+    impl Screen {
+        pub fn sleep(&mut self) -> Result<(), Error> {
             self.screen.sleep(&mut self.spi)
         }
 
-        fn wake_up<DELAY: DelayMs<u8>>(&mut self, delay: &mut DELAY) -> Result<(), Self::Error> {
+        pub fn wake_up<DELAY: DelayMs<u8>>(&mut self, delay: &mut DELAY) -> Result<(), Error> {
             self.screen.wake_up(&mut self.spi, delay)
         }
 
-        fn update_and_display_frame(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+        pub fn update_and_display_frame(&mut self, buffer: &[u8]) -> Result<(), Error> {
             self.screen.update_and_display_frame(&mut self.spi, buffer)
         }
 
-        fn clear_frame(&mut self) -> Result<(), Self::Error> {
+        pub fn clear_frame(&mut self) -> Result<(), Error> {
             self.screen.clear_frame(&mut self.spi)
         }
     }
 
     // TODO Return a Result
-    pub fn create() -> (EdpScreen, impl FnOnce() -> ()) {
+    pub fn create() -> (Screen, impl FnOnce() -> ()) {
         // Configure SPI and GPIO
         let mut spi =
             Spi::new(Bus::Spi0, SlaveSelect::Ss0, 4_000_000, Mode::Mode0).expect("spi bus");
@@ -89,7 +74,7 @@ mod rasp {
         let runloop = || {};
 
         (
-            EdpScreen {
+            Screen {
                 spi,
                 screen: epd7in5,
             },
@@ -98,17 +83,9 @@ mod rasp {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
-pub fn create() -> Result<(impl Screen, impl FnOnce() -> ()), ()> {
-    let s = mac::create();
-
-    Ok(s)
-}
-
 // TODO Implement this based on the embedded-graphics simulator
 #[cfg(not(target_os = "linux"))]
 mod mac {
-    use super::Screen;
     use bitvec::prelude::*;
     use embedded_graphics::{pixelcolor::BinaryColor, prelude::*};
     use embedded_graphics_simulator::{
@@ -118,29 +95,27 @@ mod mac {
     use log::{debug, error, info};
     use std::{sync::mpsc, time::Duration};
 
-    pub struct MacScreen {
+    pub struct Screen {
         tx: mpsc::Sender<UiMessage>,
     }
 
-    impl Screen for MacScreen {
-        type Error = ();
-
+    impl Screen {
         // The simulator don't got to sleep
-        fn sleep(&mut self) -> Result<(), Self::Error> {
+        pub fn sleep(&mut self) -> Result<(), ()> {
             Ok(())
         }
 
         // Nor does it wake up
-        fn wake_up<DELAY: DelayMs<u8>>(&mut self, _delay: &mut DELAY) -> Result<(), Self::Error> {
+        pub fn wake_up<DELAY: DelayMs<u8>>(&mut self, _delay: &mut DELAY) -> Result<(), ()> {
             Ok(())
         }
 
-        fn update_and_display_frame(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+        pub fn update_and_display_frame(&mut self, buffer: &[u8]) -> Result<(), ()> {
             self.tx.send(UiMessage::Update(buffer.to_vec())).unwrap(); // TODO error handling
             Ok(())
         }
 
-        fn clear_frame(&mut self) -> Result<(), Self::Error> {
+        pub fn clear_frame(&mut self) -> Result<(), ()> {
             self.tx.send(UiMessage::Clear).unwrap(); // TODO error handling
             Ok(())
         }
@@ -166,7 +141,7 @@ mod mac {
     pub const HEIGHT: u32 = 480;
 
     // TODO Return a Result
-    pub fn create() -> (MacScreen, impl FnOnce() -> ()) {
+    pub fn create() -> (Screen, impl FnOnce() -> ()) {
         let (tx, rx) = mpsc::channel::<UiMessage>();
 
         // SDL requires a single thread manage all operations (the "main" thread). So we have
@@ -223,7 +198,7 @@ mod mac {
             info!("Window run loop ended");
         };
 
-        (MacScreen { tx }, runloop)
+        (Screen { tx }, runloop)
     }
 
     fn buffer_to_display(buffer: Vec<u8>, display: &mut SimulatorDisplay<BinaryColor>) {
