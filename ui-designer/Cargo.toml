@@ -1,0 +1,8 @@
+[package]
+name = "ui-designer"
+version = "0.1.0"
+authors = ["François <francois@monniot.eu>"]
+edition = "2018"
+
+[dependencies]
+my-home = { path = "../my-home" }

@@ -1,0 +1,47 @@
+[package]
+name = "my-home"
+version = "0.1.0"
+authors = ["François <francois@monniot.eu>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+ed25519-dalek = "1"
+base64 = "0.13"
+uuid = { version = "0.8", features = ["v4", "serde"] }
+reqwest = { version = "0.11", features = ["rustls-tls", "hyper-rustls"], default-features = false }
+tokio = { version = "1.5", features = ["macros", "rt", "net", "sync", "rt-multi-thread"] }
+tokio-util = { version = "0.6", features = ["codec", "net"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+#paho-mqtt = "0.9.1"
+futures = "0.3"
+futures-core = "0.3"
+lifx-core = "0.2"
+bytes = "1"
+mqtt-protocol = { version = "0.11", features = [ "tokio-codec" ] } # version = "0.11" when released
+rustls = "0.19"
+tokio-rustls = "0.22.0"
+rustls-native-certs = "0.5.0"
+log = "0.4"
+env_logger = "0.8"
+thiserror = "1.0.21"
+either = "1.6.1"
+pid-lite = "1"
+async-trait = "0.1.48"
+downcast-rs = "1.2"
+
+
+embedded-graphics = { version = "0.6.2" }
+embedded-layout = "0.1"
+embedded-hal = {version = "0.2.4", features = ["unproven"]}
+epd-waveshare = { git = "https://github.com/caemor/epd-waveshare", branch = "main" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rppal = { version = "0.11.3", features = ["hal-unproven"] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+embedded-graphics-simulator = "0.2.1"
+bitvec = "0.22.1"

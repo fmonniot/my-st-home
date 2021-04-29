@@ -1,0 +1,8 @@
+[package]
+name = "tsl_2591"
+version = "0.1.0"
+authors = ["François <francois@monniot.eu>"]
+edition = "2018"
+
+[dependencies]
+rppal = { version = "0.11.3", features = ["hal-unproven"] }
