@@ -133,7 +133,7 @@ pub fn spawn() -> SensorsTask {
 
 #[cfg(target_os = "linux")]
 mod runloop {
-    use super::SensorMessage;
+    use super::{Luminosity, SensorMessage};
     use crate::tsl_2591::TSL2591Sensor;
     use log::{debug, trace, warn};
     use rppal::i2c::I2c;

@@ -6,7 +6,7 @@ use super::{
     mqtt::{self, MqttClient},
     Command, Commands, DeviceEvent, DeviceEvents, Topic,
 };
-use crate::actor::{Actor, ChannelRef, Context, Message, Receiver};
+use crate::actor::{Actor, ChannelRef, Context, Message, Receiver, StreamHandle};
 use crate::configuration::Configuration;
 
 #[derive(Debug, thiserror::Error)]
@@ -27,6 +27,7 @@ pub struct SmartThings {
     pending_events: Vec<DeviceEvent>,
     configuration: Configuration,
     commands: Option<ChannelRef<Command>>,
+    subscriptions_handle: Option<StreamHandle>,
 }
 
 // TODO Change client implementation to not depends on Mutex. Probably
@@ -70,12 +71,19 @@ pub fn new(configuration: Configuration) -> Result<SmartThings, CreateError> {
         pending_events: vec![],
         configuration,
         commands: None,
+        subscriptions_handle: None,
     })
 }
 
 impl Actor for SmartThings {
     fn pre_start(&mut self, ctx: &Context<Self>) {
         self.commands = Some(ctx.channel())
+    }
+
+    fn post_stop(&mut self, _ctx: &Context<Self>) {
+        if let Some(handle) = &self.subscriptions_handle {
+            handle.cancel();
+        }
     }
 }
 
@@ -190,7 +198,7 @@ impl Receiver<LifeCycleEvent> for SmartThings {
             LifeCycleEvent::PublishResult(Err(error)) => {
                 error!("Cannot publish some device events: {:?}", error);
             }
-            LifeCycleEvent::SuscribeResult(Ok(codes)) => {
+            LifeCycleEvent::SuscribeResult(Ok(_codes)) => {
                 // TODO Check the codes and handle possible error
                 use futures::StreamExt;
                 if let Some(client) = &self.client {
@@ -212,7 +220,8 @@ impl Receiver<LifeCycleEvent> for SmartThings {
                         })
                     });
 
-                    ctx.subscribe_to_stream(subs);
+                    let handle = ctx.subscribe_to_stream(subs);
+                    self.subscriptions_handle = Some(handle);
                 }
             }
             LifeCycleEvent::SuscribeResult(Err(error)) => {

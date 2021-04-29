@@ -104,7 +104,7 @@ pub struct StreamHandle {
     handle: tokio::task::JoinHandle<()>,
 }
 impl StreamHandle {
-    fn cancel(&self) {
+    pub fn cancel(&self) {
         // Should we do that differently ?
         self.handle.abort()
     }
@@ -142,15 +142,12 @@ where
     }
 
     /// Create an actor under the current actor
+    #[allow(unused)]
     pub fn default_actor_of<A2>(&self, name: &str) -> Result<ActorRef<A2>, CreateError>
     where
         A2: Actor + Default,
     {
         self.actor_of(name, A2::default())
-    }
-
-    pub fn find_actor<A2: Actor>(&self, name: &str) -> Option<ActorRef<A2>> {
-        self.system.find_actor(name)
     }
 
     pub fn channel<M: Message>(&self) -> ChannelRef<M> {
@@ -334,17 +331,6 @@ impl ActorSystem {
         A: Actor + Default,
     {
         self.actor_of(name, A::default())
-    }
-
-    // TODO Should use type of messages instead. Signature be like the channel function below actually.
-    pub fn find_actor<A2: Actor>(&self, name: &str) -> Option<ActorRef<A2>> {
-        // registered: Arc<Mutex<HashMap<String, Box<(TypeId, dyn Any + Send)>>>>,
-        let actors = self.actors.lock().unwrap();
-
-        actors
-            .get(name)
-            .and_then(|any| any.downcast_ref::<ActorRef<A2>>())
-            .cloned()
     }
 
     /// Get access to a channel for a given message type

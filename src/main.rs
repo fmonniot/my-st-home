@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let smartthings = smartthings::new(cfg.clone())?;
     let smartthings = system.actor_of("smartthings", smartthings).unwrap();
-    
+
     smartthings.send_msg(smartthings::Cmd::Connect);
 
     let _sensors_actor = system
@@ -57,9 +57,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
 
     let _st_state = system
-        .actor_of("logic/st_state", logic::st_state::new(
-            adaptive_brightness, lifx_actor, smartthings
-        ))
+        .actor_of(
+            "logic/st_state",
+            logic::st_state::new(adaptive_brightness, lifx_actor, smartthings),
+        )
         .unwrap();
 
     let (screen, window_run_loop) = screen::new();

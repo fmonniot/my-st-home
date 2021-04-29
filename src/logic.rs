@@ -115,13 +115,13 @@ pub(super) async fn adaptive_brightness<S>(
 }
 
 pub mod st_state {
+    use super::brightness::Command as BrightnessCommand;
     use crate::{
         actor::{Actor, ActorRef, Context, Receiver},
-     lifx::actors::Command as LifxCommand,
-      smartthings::{Command, Cmd as SmartThingsCmd, DeviceEvent},
+        lifx::actors::Command as LifxCommand,
+        smartthings::{Cmd as SmartThingsCmd, Command, DeviceEvent},
     };
-    use super::brightness::{Command as BrightnessCommand};
-    use log::{debug};
+    use log::debug;
 
     // TODO Keep the generic or use the struct directly ?
     pub struct StState<B: Actor, L: Actor, S: Actor> {
@@ -131,7 +131,11 @@ pub mod st_state {
         light: bool,
     }
 
-    pub fn new<B, L, S>(brightness: ActorRef<B>, lifx: ActorRef<L>, smartthings: ActorRef<S>) -> StState<B, L, S>
+    pub fn new<B, L, S>(
+        brightness: ActorRef<B>,
+        lifx: ActorRef<L>,
+        smartthings: ActorRef<S>,
+    ) -> StState<B, L, S>
     where
         B: Receiver<BrightnessCommand>,
         L: Receiver<LifxCommand>,
@@ -139,19 +143,18 @@ pub mod st_state {
     {
         StState {
             brightness,
-             lifx,
-             smartthings,
-             light: false,
+            lifx,
+            smartthings,
+            light: false,
         }
     }
 
     impl<B, L, S> Actor for StState<B, L, S>
     where
-    B: Receiver<BrightnessCommand>,
-    L: Receiver<LifxCommand>,
-    S: Receiver<SmartThingsCmd>,
-     {
-
+        B: Receiver<BrightnessCommand>,
+        L: Receiver<LifxCommand>,
+        S: Receiver<SmartThingsCmd>,
+    {
         fn pre_start(&mut self, ctx: &Context<Self>) {
             let channel = ctx.channel::<Command>();
             channel.subscribe_to(ctx.myself.clone(), "smartthings/command");
@@ -160,9 +163,9 @@ pub mod st_state {
 
     impl<B, L, S> Receiver<Command> for StState<B, L, S>
     where
-    B: Receiver<BrightnessCommand>,
-    L: Receiver<LifxCommand>,
-    S: Receiver<SmartThingsCmd>,
+        B: Receiver<BrightnessCommand>,
+        L: Receiver<LifxCommand>,
+        S: Receiver<SmartThingsCmd>,
     {
         fn recv(&mut self, _ctx: &Context<Self>, command: Command) {
             // TODO Correctly handle different type of command
@@ -183,24 +186,29 @@ pub mod st_state {
                 // Send device event to the ST platform
                 debug!("Sending device event with value '{}'", value);
 
-                self.smartthings.send_msg(SmartThingsCmd::Publish(DeviceEvent::simple_str("main", "switch", "switch", value)));
+                self.smartthings
+                    .send_msg(SmartThingsCmd::Publish(DeviceEvent::simple_str(
+                        "main", "switch", "switch", value,
+                    )));
 
                 // Let the brightness logic know about this
                 // TODO Some thinking to do on how many level of indirection we really need
-                let cmd = if switch { BrightnessCommand::TurnOn } else { BrightnessCommand::TurnOff };
+                let cmd = if switch {
+                    BrightnessCommand::TurnOn
+                } else {
+                    BrightnessCommand::TurnOff
+                };
                 self.brightness.send_msg(cmd);
 
                 // Change lifx power level
                 // TODO Don't change the brightness setting, only power
                 self.lifx.send_msg(LifxCommand::SetGroupBrightness {
                     group: "Living Room - Desk".to_string(),
-                    brightness: 0
-                 });
+                    brightness: 0,
+                });
             }
         }
     }
-
-
 }
 pub mod brightness {
     use crate::{
