@@ -41,13 +41,17 @@ We use [cross](https://github.com/rust-embedded/cross/pull/522) to simplify the 
 
 1. rustup toolchain add stable-x86_64-unknown-linux-gnu --profile=minimal
 2. cargo install cross
-3. cross build --target=armv7-unknown-linux-gnueabihf
+3. `cross build --target=armv7-unknown-linux-gnueabihf -p my-home`
 
 The binary will be found in `target/armv7-unknown-linux-gnueabihf/debug/mqtt-console`.
 
 Note: When doing a release, pass the `--release` flag and look in the `release` directory instead of `debug`.
 
+Note 2: the `cross` docker image doesn't have SDL2, so we shouldn't try to build the `ui-designer` project in that environment. Selecting the correct crate with `-p` is thus important.
+
 # Running on mac/windows
+
+TODO Will be obsolete with the `ui-designer` sub-crate.
 
 When not targeting `linux`, we are using [https://github.com/embedded-graphics/simulator] to render our screen.
 This requires the SDL library to be installed on the system, lookup the link for instruction on how to do it.
@@ -60,3 +64,9 @@ This repo contains multiple crates:
 - `tsl_2591` is the driver for the luminosity sensor we use in this project. It should eventually be published on crates.io once ported to use `embedded-hal` instead of `rppal`.
 - `ui-designer` is a helper crate which provides a simulator for the UI rendering of the main project. The idea being that testing UI changes on the raspberry pi device is too slow, so we have a simulator being able to run on mac/linux and do the design work there.
 
+Quick commands:
+```
+$ cargo test               # run tests on all crates
+$ cargo run -p my-home     # run the main program
+$ cargo run -p ui-designer # run the frame rendered
+```

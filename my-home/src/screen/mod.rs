@@ -1,4 +1,3 @@
-use crate::delay::Delay;
 use embedded_graphics::{
     fonts::{Font6x8, Text},
     pixelcolor::BinaryColor,
@@ -17,6 +16,7 @@ use log::{debug, warn};
 use tokio::task::JoinHandle;
 
 mod actor;
+mod delay;
 mod screen;
 
 pub use actor::{new, UserInterface};
@@ -71,16 +71,12 @@ pub enum ScreenMessage {
     UpdateLifxGroup { group: String, brightness: u16 },
 }
 
-pub fn spawn() -> (ScreenTask, impl FnOnce() -> ()) {
+pub fn spawn() -> ScreenTask {
     // Then create the communication channel
     let (sender, receiver) = std::sync::mpsc::channel();
-    let (mut screen, runloop) = screen::create().expect("screen initialized");
+    let mut screen = screen::create().expect("screen initialized");
 
     let join = tokio::task::spawn_blocking(move || {
-        // Is it still needed ? Do we want to limit the number of refresh we can do
-        // per 5 seconds period ?
-        let mut delay = Delay {};
-
         // TODO Once we have the simulator in place, see if we need a special struct
         // to implement the Display trait. If not, we should have our own and not depends
         // on epd_waveshare on mac at all. Maybe ? Not sure about that one tbh.
@@ -126,7 +122,7 @@ pub fn spawn() -> (ScreenTask, impl FnOnce() -> ()) {
                     frame.draw(&mut display).expect("paint frame");
 
                     // update the screen
-                    screen.wake_up(&mut delay).unwrap(); // TODO Error handling
+                    screen.wake_up().unwrap(); // TODO Error handling
                     screen
                         .update_and_display_frame(&display.buffer())
                         .expect("display frame new graphics");
@@ -140,7 +136,7 @@ pub fn spawn() -> (ScreenTask, impl FnOnce() -> ()) {
 
     let task = ScreenTask { sender, join };
 
-    (task, runloop)
+    task
 }
 
 // TODO Return error
@@ -157,8 +153,9 @@ fn draw_text<D: DrawTarget<BinaryColor>>(display: &mut D, text: &str, x: i32, y:
 /// Frame is the representation of what is on screen.
 /// It is also a state machine and define what the next frame will be based on a [ScreenMessage]
 #[derive(Debug, Clone)]
-enum Frame {
+pub enum Frame {
     Calibration, // To test out the implementation, needs to be changed to something meaningful :)
+    Empty,
 }
 
 /// Width of the display
@@ -171,42 +168,54 @@ impl Frame {
     fn update(self, message: ScreenMessage) -> Frame {
         match (self, message) {
             (Frame::Calibration, _) => Frame::Calibration,
+            (frame, _) => frame,
         }
     }
 
     /// Draw the current state onto a buffer. The buffer isn't cleared.
-    fn draw<D: DrawTarget<BinaryColor>>(&self, display: &mut D) -> Result<(), D::Error> {
-        // Debug information
-        // draw a rectangle around the screen
-        Rectangle::new(Point::new(1, 1), Point::new(WIDTH - 1, HEIGHT - 1))
-            .into_styled(PrimitiveStyle::with_stroke(White, 1))
-            .draw(display)?;
+    pub fn draw<D: DrawTarget<BinaryColor>>(&self, display: &mut D) -> Result<(), D::Error> {
+        match &self {
+            Frame::Calibration => draw_calibration(display),
+            Frame::Empty => {
+                display.clear(BinaryColor::Off)?;
 
-        // Text in the four corners
-        draw_text(display, "top-left", 1, 1);
-        draw_text(display, "top-right", WIDTH - 6 * 9 - 1, 1);
-        draw_text(display, "bottom-left", 1, HEIGHT - 8 - 1);
-        draw_text(display, "bottom-right", WIDTH - 6 * 12 - 1, HEIGHT - 8 - 1);
-
-        // Draw the frame (Fixed frame for now, will go into a pattern match to choose what to display)
-
-        let display_area = display.display_area();
-
-        let mut clock = AnalogClock::new(Size::new(128, 128));
-        clock.translate(Point::new(10, 10));
-
-        let calendar = CalendarEventWidget::new("New event", "Thu 08 Apr", Size::new(200, 40));
-
-        LinearLayout::horizontal()
-            .with_spacing(FixedMargin(4))
-            .add_view(clock)
-            .add_view(calendar)
-            .arrange()
-            .align_to(&display_area, horizontal::Center, vertical::Center)
-            .draw(display)?;
-
-        Ok(())
+                Ok(())
+            }
+        }
     }
+}
+
+fn draw_calibration<D: DrawTarget<BinaryColor>>(display: &mut D) -> Result<(), D::Error> {
+    // Debug information
+    // draw a rectangle around the screen
+    Rectangle::new(Point::new(1, 1), Point::new(WIDTH - 1, HEIGHT - 1))
+        .into_styled(PrimitiveStyle::with_stroke(White, 1))
+        .draw(display)?;
+
+    // Text in the four corners
+    draw_text(display, "top-left", 1, 1);
+    draw_text(display, "top-right", WIDTH - 6 * 9 - 1, 1);
+    draw_text(display, "bottom-left", 1, HEIGHT - 8 - 1);
+    draw_text(display, "bottom-right", WIDTH - 6 * 12 - 1, HEIGHT - 8 - 1);
+
+    // Draw the frame (Fixed frame for now, will go into a pattern match to choose what to display)
+
+    let display_area = display.display_area();
+
+    let mut clock = AnalogClock::new(Size::new(128, 128));
+    clock.translate(Point::new(10, 10));
+
+    let calendar = CalendarEventWidget::new("New event", "Thu 08 Apr", Size::new(200, 40));
+
+    LinearLayout::horizontal()
+        .with_spacing(FixedMargin(4))
+        .add_view(clock)
+        .add_view(calendar)
+        .arrange()
+        .align_to(&display_area, horizontal::Center, vertical::Center)
+        .draw(display)?;
+
+    Ok(())
 }
 
 struct CalendarEventWidget {

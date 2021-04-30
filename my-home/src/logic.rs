@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 
-pub(super) async fn st_light_state<St, Si>(
+pub async fn st_light_state<St, Si>(
     mut commands: St,
     events: Si,
     lifx: LifxHandle,
@@ -65,7 +65,7 @@ pub(super) async fn st_light_state<St, Si>(
     }
 }
 
-pub(super) async fn adaptive_brightness<S>(
+pub async fn adaptive_brightness<S>(
     mut sensors: S,
     lifx: LifxHandle,
     light_state: Arc<RwLock<bool>>,

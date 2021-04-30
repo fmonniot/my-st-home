@@ -77,7 +77,7 @@ impl STask {
     }
 }
 
-pub(super) async fn spawn(cfg: &Configuration) -> Result<STask, Box<dyn std::error::Error>> {
+pub async fn spawn(cfg: &Configuration) -> Result<STask, Box<dyn std::error::Error>> {
     if cfg.onboarding.identity_type != "ED25519" {
         panic!(
             "Only ED25519 keys are supported at the moment. {} passed",

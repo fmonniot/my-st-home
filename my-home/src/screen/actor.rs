@@ -1,6 +1,5 @@
 use super::{screen, Frame, Screen, ScreenMessage};
 use crate::actor::{Actor, Context, Message, Receiver};
-use crate::delay::Delay;
 use epd_waveshare::{color::*, epd7in5_v2::Display7in5, graphics::Display};
 use log::info;
 
@@ -29,16 +28,14 @@ struct DrawFrame(Frame);
 
 impl Message for DrawFrame {}
 
-pub fn new() -> (UserInterface, impl FnOnce() -> ()) {
-    let (screen, run_loop) = screen::create().expect("screen initialized");
+pub fn new() -> UserInterface {
+    let screen: Screen = screen::create().expect("screen initialized");
 
-    let ui = UserInterface {
+    UserInterface {
         screen,
         display: Display7in5::default(),
         current_frame: None,
-    };
-
-    (ui, run_loop)
+    }
 }
 
 impl Actor for UserInterface {
@@ -71,7 +68,6 @@ impl Receiver<DrawFrame> for UserInterface {
     // with self.screen. That's because of how the SPI implementation is made.
     fn recv(&mut self, _ctx: &Context<Self>, msg: DrawFrame) {
         let new_frame = msg.0;
-        let mut delay = Delay {};
 
         // OK, that's going to be strange but Black is White, and White is Black…
         // Go figures why they got that one wrong XD.
@@ -89,7 +85,7 @@ impl Receiver<DrawFrame> for UserInterface {
         new_frame.draw(&mut self.display).expect("paint frame");
 
         // update the screen
-        self.screen.wake_up(&mut delay).unwrap(); // TODO Error handling
+        self.screen.wake_up().unwrap(); // TODO Error handling
         self.screen
             .update_and_display_frame(&self.display.buffer())
             .expect("display frame new graphics");
