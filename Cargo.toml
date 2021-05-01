@@ -1,6 +1,6 @@
 [workspace]
 members = [
     "my-home",
-    #"tsl_2591", # enable once we have moved to embedded-hal
+    "tsl_2591", # enable once we have moved to embedded-hal
     "ui-designer",
 ]

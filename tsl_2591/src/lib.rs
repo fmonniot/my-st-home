@@ -1,13 +1,19 @@
 //! This is largely a port of
 //! https://github.com/adafruit/Adafruit_CircuitPython_TSL2591/blob/master/adafruit_tsl2591.py
 //! https://github.com/robbielamb/tsl2591_sensor/blob/master/src/tsl2591_sensor.rs
+use std::fmt::{Debug, Display};
+
 // TODO Should probably rewritten on top of embedded-hal instead
 // https://github.com/eldruin/veml6030-rs for inspiration on arch/structure.
-use rppal::i2c;
-use std::error;
-use std::fmt;
+// TODO Not no_std at the time because of std::error::Error. It should be easy
+// to remove them and we can go no_std. Note that means my-home will probably need
+// a newtype around that error to be able to still work with Error.
+use embedded_hal::blocking::i2c;
 
-const TSL2591_ADDR: u16 = 0x29;
+mod types;
+pub use types::{Gain, IntegrationTime, TSL2591Error};
+
+const TSL2591_ADDR: u8 = 0x29;
 const TSL2591_COMMAND_BIT: u8 = 0xA0;
 
 const TSL2591_ENABLE_POWEROFF: u8 = 0x00;
@@ -30,138 +36,30 @@ const TSL2591_LUX_COEFD: f32 = 0.86;
 const TSL2591_MAX_COUNT_100MS: u16 = 0x8FFF;
 const TSL2591_MAX_COUNT: u16 = 0xFFFF;
 
-/// Available Gains for the sensor
-#[repr(u8)]
-#[derive(Copy, Clone, Debug)]
-pub enum Gain {
-    /// gain of 1x
-    LOW = 0x00, // 1x
-    /// gain of 25x
-    MED = 0x10, // 25x
-    /// gain of 428x
-    HIGH = 0x20, // 428x
-    /// gain of 9876x
-    MAX = 0x30, // 9876x
-}
-
-impl Gain {
-    fn from_u8(gain: u8) -> Gain {
-        match gain {
-            0x00 => Gain::LOW,
-            0x10 => Gain::MED,
-            0x20 => Gain::HIGH,
-            0x30 => Gain::MAX,
-            _ => panic!("Bad U89"),
-        }
-    }
-}
-
-impl fmt::Display for Gain {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Gain::LOW => write!(f, "LOW (1x)"),
-            Gain::MED => write!(f, "MED (25x)"),
-            Gain::HIGH => write!(f, "HIGH (428x)"),
-            Gain::MAX => write!(f, "MAX (9876x)"),
-        }
-    }
-}
-
-/// Available integration times for the sensor
-#[repr(u8)]
-#[derive(Copy, Clone, Debug)]
-pub enum IntegrationTime {
-    /// 100ms integration time
-    Time100ms = 0x00,
-    /// 200ms integration time
-    Time200ms = 0x01,
-    /// 300ms integration time
-    Time300ms = 0x02,
-    /// 400ms integration time
-    Time400ms = 0x03,
-    /// 500ms integration time
-    Time500ms = 0x04,
-    /// 600ms integration time
-    Time600ms = 0x05,
-}
-
-impl IntegrationTime {
-    fn from_u8(integration_time: u8) -> IntegrationTime {
-        match integration_time {
-            0x00 => IntegrationTime::Time100ms,
-            0x01 => IntegrationTime::Time200ms,
-            0x02 => IntegrationTime::Time300ms,
-            0x03 => IntegrationTime::Time400ms,
-            0x04 => IntegrationTime::Time500ms,
-            0x05 => IntegrationTime::Time600ms,
-            _ => panic!("Integration time out of range"),
-        }
-    }
-}
-
-impl fmt::Display for IntegrationTime {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            IntegrationTime::Time100ms => write!(f, "100ms"),
-            IntegrationTime::Time200ms => write!(f, "200ms"),
-            IntegrationTime::Time300ms => write!(f, "300ms"),
-            IntegrationTime::Time400ms => write!(f, "400ms"),
-            IntegrationTime::Time500ms => write!(f, "500ms"),
-            IntegrationTime::Time600ms => write!(f, "600ms"),
-        }
-    }
-}
-
-/// Errors when accessing the sensor
-#[derive(Debug)]
-pub enum TSL2591Error {
-    /// Errors that occur when accessing the I2C peripheral.
-    I2cError(i2c::Error),
-    /// Overflow error when calculating lux
-    OverflowError,
-    /// Error throw when the sensor is not found
-    RuntimeError,
-}
-
-impl fmt::Display for TSL2591Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            TSL2591Error::RuntimeError => write!(f, "Unable to find device TSL2591"),
-            TSL2591Error::OverflowError => write!(f, "Overflow reading light channels"),
-            TSL2591Error::I2cError(ref err) => write!(f, "i2cError: {}", err),
-        }
-    }
-}
-
-impl error::Error for TSL2591Error {}
-
-impl From<i2c::Error> for TSL2591Error {
-    fn from(err: i2c::Error) -> TSL2591Error {
-        TSL2591Error::I2cError(err)
-    }
-}
-
 /// Provide access to a TSL2591 sensor on the i2c bus.
 #[derive(Debug)]
-pub struct TSL2591Sensor {
-    i2cbus: i2c::I2c,
+pub struct TSL2591Sensor<I2C> {
+    i2c: I2C,
     gain: Gain,
     integration_time: IntegrationTime,
 }
 
-impl TSL2591Sensor {
+// TODO impl separated in 3 or 4 sections: no constraints, write, read, write+read
+impl<I2C, E> TSL2591Sensor<I2C>
+where
+    I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E>,
+    E: Debug + Display,
+{
     /// Construct a new TSL2591 sensor on the given i2c bus.
     ///
     /// The device is returned enabled and ready to use.
     /// The gain and integration times can be changed after returning.
-    pub fn new(i2cbus: i2c::I2c) -> Result<TSL2591Sensor, TSL2591Error> {
+    pub fn new(i2c: I2C) -> Result<TSL2591Sensor<I2C>, TSL2591Error<E>> {
         let mut obj = TSL2591Sensor {
-            i2cbus,
+            i2c,
             gain: Gain::MED,
             integration_time: IntegrationTime::Time100ms,
         };
-
-        obj.i2cbus.set_slave_address(TSL2591_ADDR)?;
 
         if obj.read_u8(TSL2591_REGISTER_DEVICE_ID)? != 0x50 {
             return Err(TSL2591Error::RuntimeError);
@@ -175,28 +73,50 @@ impl TSL2591Sensor {
         Ok(obj)
     }
 
-    /// Read a byte from the given address
-    fn read_u8(&self, address: u8) -> Result<u8, TSL2591Error> {
-        let command = (TSL2591_COMMAND_BIT | address) & 0xFF;
-        Ok(self.i2cbus.smbus_read_byte(command)?)
+    /// Destroy driver instance, return I²C bus instance.
+    pub fn destroy(self) -> I2C {
+        self.i2c
+    }
+
+    // Abstraction over the raw traits
+
+    /// Read a byte from the given register
+    fn read_u8(&mut self, register: u8) -> Result<u8, TSL2591Error<E>> {
+        let mut data = [0; 1];
+        self.i2c.write_read(
+            TSL2591_ADDR,
+            &[(TSL2591_COMMAND_BIT | register) & 0xFF],
+            &mut data,
+        )?;
+
+        Ok(data[0])
+    }
+
+    /// Read a word from the given register
+    fn read_u16(&mut self, register: u8) -> Result<u16, TSL2591Error<E>> {
+        let mut data = [0; 2];
+        self.i2c.write_read(
+            TSL2591_ADDR,
+            &[(TSL2591_COMMAND_BIT | register) & 0xFF],
+            &mut data,
+        )?;
+
+        Ok(u16::from(data[0]) | u16::from(data[1]) << 8)
     }
 
     /// Write a byte to the given address
-    fn write_u8(&self, address: u8, val: u8) -> Result<(), TSL2591Error> {
+    fn write_u8(&mut self, address: u8, val: u8) -> Result<(), TSL2591Error<E>> {
         let command = (TSL2591_COMMAND_BIT | address) & 0xFF;
         let val = val & 0xFF;
-        self.i2cbus.smbus_write_byte(command, val)?;
+        //self.i2cbus.smbus_write_byte(command, val)?;
+
+        self.i2c.write(address, &[command, val])?;
+
         Ok(())
     }
 
-    /// Read a word from the given address
-    fn read_u16(&self, address: u8) -> Result<u16, TSL2591Error> {
-        let command = (TSL2591_COMMAND_BIT | address) & 0xFF;
-        Ok(self.i2cbus.smbus_read_word(command)?)
-    }
-
     /// Set the Gain for the sensor
-    pub fn set_gain(&mut self, gain: Gain) -> Result<(), TSL2591Error> {
+    pub fn set_gain(&mut self, gain: Gain) -> Result<(), TSL2591Error<E>> {
         let control = self.read_u8(TSL2591_REGISTER_CONTROL)?;
         let updated_control = (control & 0b11001111) | (gain as u8);
 
@@ -206,7 +126,7 @@ impl TSL2591Sensor {
     }
 
     /// Get the current configred gain on the sensor
-    pub fn get_gain(&self) -> Result<Gain, TSL2591Error> {
+    pub fn get_gain(&mut self) -> Result<Gain, TSL2591Error<E>> {
         let control = self.read_u8(TSL2591_REGISTER_CONTROL)?;
         Ok(Gain::from_u8(control & 0b00110000))
         // Check to see if the saved value is what we pulled back?
@@ -216,7 +136,7 @@ impl TSL2591Sensor {
     pub fn set_integration_time(
         &mut self,
         integration_time: IntegrationTime,
-    ) -> Result<(), TSL2591Error> {
+    ) -> Result<(), TSL2591Error<E>> {
         self.integration_time = integration_time;
         let control = self.read_u8(TSL2591_REGISTER_CONTROL)?;
         let updated_control = (control & 0b11111000) | (integration_time as u8);
@@ -224,13 +144,13 @@ impl TSL2591Sensor {
     }
 
     /// Get the current integration time configured on the sensor
-    pub fn get_integration_time(&self) -> Result<IntegrationTime, TSL2591Error> {
+    pub fn get_integration_time(&mut self) -> Result<IntegrationTime, TSL2591Error<E>> {
         let control = self.read_u8(TSL2591_REGISTER_CONTROL)?;
         Ok(IntegrationTime::from_u8(control & 0b0000111))
     }
 
     /// Activate the device using all the features.
-    pub fn enable(&self) -> Result<(), TSL2591Error> {
+    pub fn enable(&mut self) -> Result<(), TSL2591Error<E>> {
         let command = TSL2591_ENABLE_POWERON
             | TSL2591_ENABLE_AEN
             | TSL2591_ENABLE_AIEN
@@ -239,14 +159,14 @@ impl TSL2591Sensor {
     }
 
     /// Disables the device putting it in a low power mode.
-    pub fn disable(&self) -> Result<(), TSL2591Error> {
+    pub fn disable(&mut self) -> Result<(), TSL2591Error<E>> {
         self.write_u8(TSL2591_REGISTER_ENABLE, TSL2591_ENABLE_POWEROFF)
     }
 
     /// Read the raw values from the sensor and return a tuple
     /// The first channel is is IR+Visible luminosity and the
     /// second is IR only.
-    fn raw_luminosity(&self) -> Result<(u16, u16), TSL2591Error> {
+    fn raw_luminosity(&mut self) -> Result<(u16, u16), TSL2591Error<E>> {
         let channel0 = self.read_u16(TSL2591_REGISTER_CHAN0_LOW)?;
         let channel1 = self.read_u16(TSL2591_REGISTER_CHAN1_LOW)?;
 
@@ -254,7 +174,7 @@ impl TSL2591Sensor {
     }
 
     /// Read the full spectrum (IR+Visible)
-    pub fn full_spectrum(&self) -> Result<u32, TSL2591Error> {
+    pub fn full_spectrum(&mut self) -> Result<u32, TSL2591Error<E>> {
         let (chan0, chan1) = self.raw_luminosity()?;
         let chan0 = chan0 as u32;
         let chan1 = chan1 as u32;
@@ -262,13 +182,13 @@ impl TSL2591Sensor {
     }
 
     /// Read the infrared light
-    pub fn infrared(&self) -> Result<u16, TSL2591Error> {
+    pub fn infrared(&mut self) -> Result<u16, TSL2591Error<E>> {
         let (_, chan1) = self.raw_luminosity()?;
         Ok(chan1)
     }
 
     /// Read the visible light
-    pub fn visible(&self) -> Result<u32, TSL2591Error> {
+    pub fn visible(&mut self) -> Result<u32, TSL2591Error<E>> {
         let (chan0, chan1) = self.raw_luminosity()?;
         let chan0 = chan0 as u32;
         let chan1 = chan1 as u32;
@@ -281,7 +201,7 @@ impl TSL2591Sensor {
     /// See:
     /// https://github.com/adafruit/Adafruit_CircuitPython_TSL2591/blob/master/adafruit_tsl2591.py
     /// https://github.com/adafruit/Adafruit_TSL2591_Library/blob/master/Adafruit_TSL2591.cpp
-    pub fn lux(&self) -> Result<f32, TSL2591Error> {
+    pub fn lux(&mut self) -> Result<f32, TSL2591Error<E>> {
         let (chan0, chan1) = self.raw_luminosity()?;
 
         // Compute the atime in milliseconds
