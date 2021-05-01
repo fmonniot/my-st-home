@@ -456,7 +456,21 @@ impl Decoder for LifxCodec {
     // TODO Manage frames over multiple packet (is it even possible with lify protocol ?)
     // TODO Make sure we have correctly consumed the buffer
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        let raw = RawMessage::unpack(&src)?;
+        let raw = match RawMessage::unpack(&src) {
+            Ok(r) => r,
+            Err(lifx_core::Error::Io(io)) if io.kind() == std::io::ErrorKind::UnexpectedEof => {
+                return Ok(None)
+            }
+            Err(error) => {
+                debug!("Error unpacking raw message: {:?}", error);
+                return Err(error.into());
+            }
+        };
+
+        // We have read some bytes, so we need to remove them from the buffer.
+        let size = raw.packed_size();
+        let _ = src.split_to(size);
+
         let msg = Message::from_raw(&raw)?;
 
         Ok(Some((raw.frame_addr, msg)))
@@ -488,13 +502,16 @@ mod tests {
             duration: 9, // ms ?
         };
 
+        // Encode two messages back to back
         let mut buffer = BytesMut::new();
+        LifxCodec
+            .encode((options.clone(), message.clone()), &mut buffer)
+            .unwrap();
         LifxCodec
             .encode((options, message.clone()), &mut buffer)
             .unwrap();
-        let res = LifxCodec.decode(&mut buffer);
 
-        match res {
+        let test = |res| match res {
             Ok(Some((
                 FrameAddress { target, .. },
                 Message::LightSetColor {
@@ -509,7 +526,12 @@ mod tests {
                 assert_eq!(duration, 9);
             }
             r => assert!(false, "result {:?} was not expected", r),
-        }
+        };
+
+        // There are two messages following each other. A decoder should remove a decoded message
+        // from the buffer once it has read it.
+        test(LifxCodec.decode(&mut buffer));
+        test(LifxCodec.decode(&mut buffer));
     }
 }
 
@@ -630,6 +652,7 @@ pub mod actors {
         }
 
         fn refresh(&self) {
+            debug!("Refreshing LIFX bulbs");
             // First make a list of all the messages we want to send
             let messages = vec![
                 lifx_core::Message::GetLabel,
