@@ -72,8 +72,7 @@ pub mod udp {
     {
         // Blocking here should be ok-ish, as the async process is mostly on resolving addresses
         // which me don't really do in this project (we use IP addresses only in UDP)
-        let handle = tokio::runtime::Handle::current();
-        let socket = handle.block_on(UdpSocket::bind(addr))?;
+        let socket = futures::executor::block_on(UdpSocket::bind(addr))?;
 
         socket.set_broadcast(is_broadcast)?;
 

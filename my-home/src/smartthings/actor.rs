@@ -203,12 +203,11 @@ impl Receiver<LifeCycleEvent> for SmartThings {
                 use futures::StreamExt;
                 if let Some(client) = &self.client {
                     let client = client.clone();
-                    let handle = tokio::runtime::Handle::current();
 
                     // This isn't good, and will be removed once the MQTT client will be actor
                     // based. In the meantime, we don't have that much concurrency going on and
                     // should be fine with a blocking operation here.
-                    let subs = handle.block_on(async {
+                    let subs = futures::executor::block_on(async {
                         let client = client.lock().await;
 
                         client.subscriptions().map(|result| {
