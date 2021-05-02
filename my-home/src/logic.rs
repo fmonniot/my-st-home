@@ -177,19 +177,21 @@ pub mod st_state {
                 "Received command '{}', current state is '{}'",
                 switch, current
             );
+
+            let value = if switch { "on" } else { "off" };
+
+            // Send device event to the ST platform
+            debug!("Sending device event with value '{}'", value);
+
+            // Always send back the new state
+            self.smartthings
+                .send_msg(SmartThingsCmd::Publish(DeviceEvent::simple_str(
+                    "main", "switch", "switch", value,
+                )));
+
             if switch != current {
                 // Change light_state
                 self.light = switch;
-
-                let value = if switch { "on" } else { "off" };
-
-                // Send device event to the ST platform
-                debug!("Sending device event with value '{}'", value);
-
-                self.smartthings
-                    .send_msg(SmartThingsCmd::Publish(DeviceEvent::simple_str(
-                        "main", "switch", "switch", value,
-                    )));
 
                 // Let the brightness logic know about this
                 // TODO Some thinking to do on how many level of indirection we really need
@@ -266,8 +268,8 @@ pub mod brightness {
     impl<AL: Receiver<LifxCommand>> Receiver<Command> for AdaptiveBrightness<AL> {
         fn recv(&mut self, _ctx: &Context<Self>, msg: Command) {
             match msg {
-                Command::TurnOn => {}
-                Command::TurnOff => {}
+                Command::TurnOn => self.light_turned_on = true,
+                Command::TurnOff => self.light_turned_on = false,
             }
         }
     }
