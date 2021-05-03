@@ -49,8 +49,6 @@ impl Actor for UserInterface {
     }
 }
 
-impl Message for ScreenMessage {}
-
 impl Receiver<ScreenMessage> for UserInterface {
     fn recv(&mut self, ctx: &Context<Self>, msg: ScreenMessage) {
         let frame = std::mem::take(&mut self.current_frame);
