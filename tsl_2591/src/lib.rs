@@ -110,7 +110,7 @@ where
         let val = val & 0xFF;
         //self.i2cbus.smbus_write_byte(command, val)?;
 
-        self.i2c.write(address, &[command, val])?;
+        self.i2c.write(TSL2591_ADDR, &[command, val])?;
 
         Ok(())
     }
