@@ -5,6 +5,3 @@ pub mod logic;
 pub mod screen;
 pub mod sensors;
 pub mod smartthings;
-
-#[cfg(target_os = "linux")]
-mod tsl_2591;

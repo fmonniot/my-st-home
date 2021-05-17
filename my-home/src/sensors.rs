@@ -1,4 +1,3 @@
-
 use crate::actor::{Actor, ChannelRef, Context, Message, Receiver, Timer};
 use log::trace;
 use std::time::Duration;
@@ -58,7 +57,7 @@ impl Receiver<SensorsMessage> for Sensors {
     fn recv(&mut self, _ctx: &Context<Self>, msg: SensorsMessage) {
         match msg {
             SensorsMessage::ReadRequest => {
-                if let Some(reader) = &self.reader {
+                if let Some(reader) = &mut self.reader {
                     let luminosity = reader.read();
                     trace!("Reading value {:?} from sensor", luminosity);
 
@@ -80,7 +79,7 @@ struct Luminosity {
 }
 
 trait LuminosityReader {
-    fn read(&self) -> Luminosity; // todo errors
+    fn read(&mut self) -> Luminosity; // todo errors
 }
 
 #[derive(Debug, Clone)]
@@ -95,14 +94,12 @@ pub enum SensorMessage {
 
 #[cfg(target_os = "linux")]
 mod implementation {
-    use super::{Luminosity, SensorMessage};
-    use crate::tsl_2591::TSL2591Sensor;
-    use log::{debug, trace, warn};
+    use super::Luminosity;
     use rppal::i2c::I2c;
-    use tokio::task::JoinHandle;
+    use tsl_2591::TSL2591Sensor;
 
     pub(super) struct Reader {
-        lux_dev: TSL2591Sensor,
+        lux_dev: TSL2591Sensor<I2c>,
     }
 
     pub(super) fn reader() -> Reader {
@@ -113,7 +110,7 @@ mod implementation {
     }
 
     impl super::LuminosityReader for Reader {
-        fn read(&self) -> Luminosity {
+        fn read(&mut self) -> Luminosity {
             let visible = self.lux_dev.visible().unwrap();
             let infrared = self.lux_dev.infrared().unwrap();
             let full_spectrum = self.lux_dev.full_spectrum().unwrap();
@@ -145,7 +142,7 @@ mod implementation {
     }
 
     impl super::LuminosityReader for Reader {
-        fn read(&self) -> Luminosity {
+        fn read(&mut self) -> Luminosity {
             let visible = 1;
             let infrared = 2;
             let full_spectrum = 3;

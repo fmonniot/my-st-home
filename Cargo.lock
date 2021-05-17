@@ -910,6 +910,7 @@ dependencies = [
  "tokio-rustls",
  "tokio-stream",
  "tokio-util",
+ "tsl_2591",
  "uuid",
 ]
 

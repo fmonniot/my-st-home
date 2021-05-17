@@ -25,9 +25,9 @@ Where we are and where we needs to go
   - [ ] Setting up the hardware
   - [ ] Prep the raspberry
   - [ ] Code doc & maybe clean up if needed
-- [ ] Improve the the tsl_2591 module
-  - [ ] depends on embedded-hal only
-  - [ ] Integrate within `my-home` with `rppal`
+- [x] Improve the the tsl_2591 module
+  - [x] depends on embedded-hal only
+  - [x] Integrate within `my-home` with `rppal`
   - [ ] publish to crates.io
 - [ ] Think on a method to configure the control loop by the end user
   - [ ] Might wait until I get my 3D printer, we'll see
