@@ -141,7 +141,7 @@ mod tests {
         let test = |res| match res {
             Ok(Some((
                 FrameAddress { target, .. },
-                Message::LightSetColor {
+                lifx_core::Message::LightSetColor {
                     reserved,
                     color,
                     duration,
