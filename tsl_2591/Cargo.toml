@@ -8,7 +8,7 @@ edition = "2018"
 embedded-hal = "0.2"
 
 [dev-dependencies]
-embedded-hal-mock = "0.7"
+embedded-hal-mock = "0.8"
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 rppal = { version = "0.11.3", features = ["hal"] }
