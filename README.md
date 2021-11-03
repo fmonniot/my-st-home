@@ -73,3 +73,14 @@ $ cargo test               # run tests on all crates
 $ cargo run -p my-home     # run the main program
 $ cargo run -p ui-designer # run the frame rendered
 ```
+
+
+# Ideas / Interesting links
+
+A collection of links which loosely relate to the tasks defined above.
+
+- https://erikflowers.github.io/weather-icons/
+- https://github.com/javierpena/eink-calendar
+- https://github.com/eminence/lifx
+- https://github.com/caemor/epd-waveshare
+- https://github.com/tnkemdilim/wifi-rs
