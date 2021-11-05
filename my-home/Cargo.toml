@@ -36,9 +36,9 @@ downcast-rs = "1.2"
 
 embedded-graphics = { version = "0.6.2" }
 embedded-layout = "0.1"
-embedded-hal = {version = "0.2.4", features = ["unproven"]}
+embedded-hal = {version = "0.2.6", features = ["unproven"]}
 epd-waveshare = { git = "https://github.com/caemor/epd-waveshare", branch = "main" }
 tsl_2591 = { path = "../tsl_2591" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-rppal = { version = "0.11.3", features = ["hal-unproven"] }
+rppal = { version = "0.13.1", features = ["hal-unproven"] }
