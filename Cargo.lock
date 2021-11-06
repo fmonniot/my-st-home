@@ -65,6 +65,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
 
 [[package]]
+name = "az"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d6dff4a1892b54d70af377bf7a17064192e822865791d812957f21e3108c325"
+
+[[package]]
 name = "backtrace"
 version = "0.3.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -322,6 +328,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "embedded-graphics-core"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8b1239db5f3eeb7e33e35bd10bd014e7b2537b17e071f726a09351431337cfa"
+dependencies = [
+ "az",
+ "byteorder",
+]
+
+[[package]]
 name = "embedded-graphics-simulator"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -397,10 +413,10 @@ dependencies = [
 [[package]]
 name = "epd-waveshare"
 version = "0.5.0"
-source = "git+https://github.com/caemor/epd-waveshare?branch=main#d9254a68a29da3c2eb982328c89f104f3bfeb939"
+source = "git+https://github.com/caemor/epd-waveshare?branch=main#34a0d81b757edbb362a427a6429e74e5aea304ce"
 dependencies = [
  "bit_field",
- "embedded-graphics",
+ "embedded-graphics-core",
  "embedded-hal 0.2.6",
 ]
 
