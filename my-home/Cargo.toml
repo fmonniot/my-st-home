@@ -34,7 +34,7 @@ async-trait = "0.1.48"
 downcast-rs = "1.2"
 
 
-embedded-graphics = { version = "0.6.2" }
+embedded-graphics = { version = "0.7.1" }
 embedded-layout = "0.1"
 embedded-hal = {version = "0.2.6", features = ["unproven"]}
 epd-waveshare = { git = "https://github.com/caemor/epd-waveshare", branch = "main" }
