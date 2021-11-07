@@ -1,10 +1,9 @@
 use embedded_graphics::{
-    fonts::{Font6x8, Text},
+    mono_font::{iso_8859_1::FONT_6X10, MonoTextStyleBuilder},
     pixelcolor::BinaryColor,
-    primitives::{Circle, Line, Rectangle},
-    style::PrimitiveStyle,
-    style::TextStyleBuilder,
-    text_style, DrawTarget,
+    prelude::*,
+    primitives::{Circle, Line, PrimitiveStyle, Rectangle},
+    text::Text,
 };
 use embedded_layout::{
     layout::linear::{spacing::FixedMargin, LinearLayout},
@@ -29,14 +28,14 @@ pub enum ScreenMessage {
 impl crate::actor::Message for ScreenMessage {}
 
 // TODO Return error
-fn draw_text<D: DrawTarget<BinaryColor>>(display: &mut D, text: &str, x: i32, y: i32) {
-    let _ = Text::new(text, Point::new(x, y))
-        .into_styled(text_style!(
-            font = Font6x8,
-            text_color = White,
-            background_color = Black
-        ))
-        .draw(display);
+fn draw_text<D: DrawTarget<Color=BinaryColor>>(display: &mut D, text: &str, x: i32, y: i32) {
+    let style = MonoTextStyleBuilder::new()
+        .font(&FONT_6X10)
+        .text_color(White)
+        .background_color(Black)
+        .build();
+
+    let _ = Text::new(text, Point::new(x, y), style).draw(display);
 }
 
 /// Frame is the representation of what is on screen.
@@ -62,7 +61,7 @@ impl Frame {
     }
 
     /// Draw the current state onto a buffer. The buffer isn't cleared.
-    pub fn draw<D: DrawTarget<BinaryColor>>(&self, display: &mut D) -> Result<(), D::Error> {
+    pub fn draw<D: DrawTarget<Color=BinaryColor>>(&self, display: &mut D) -> Result<(), D::Error> {
         match &self {
             Frame::Calibration => draw_calibration(display),
             Frame::Empty => {
@@ -74,7 +73,7 @@ impl Frame {
     }
 }
 
-fn draw_calibration<D: DrawTarget<BinaryColor>>(display: &mut D) -> Result<(), D::Error> {
+fn draw_calibration<D: DrawTarget<Color=BinaryColor>>(display: &mut D) -> Result<(), D::Error> {
     // Debug information
     // draw a rectangle around the screen
     Rectangle::new(Point::new(1, 1), Point::new(WIDTH - 1, HEIGHT - 1))
@@ -96,10 +95,8 @@ fn draw_calibration<D: DrawTarget<BinaryColor>>(display: &mut D) -> Result<(), D
 
     let calendar = CalendarEventWidget::new("New event", "Thu 08 Apr", Size::new(200, 40));
 
-    LinearLayout::horizontal()
+    LinearLayout::horizontal(Chain::new(clock).append(calendar))
         .with_spacing(FixedMargin(4))
-        .add_view(clock)
-        .add_view(calendar)
         .arrange()
         .align_to(&display_area, horizontal::Center, vertical::Center)
         .draw(display)?;
@@ -135,11 +132,16 @@ impl View for CalendarEventWidget {
     }
 }
 
-impl Drawable<BinaryColor> for &CalendarEventWidget {
-    fn draw<D: DrawTarget<BinaryColor>>(self, display: &mut D) -> Result<(), D::Error> {
+impl Drawable for &CalendarEventWidget {
+    type Color = BinaryColor;
+
+
+    fn draw<D: DrawTarget<Color = Self::Color>>(self, display: &mut D) -> Result<(), D::Error> {
         // Create styles
         let border_style = PrimitiveStyle::with_stroke(White, 1);
-        let text_style = TextStyleBuilder::new(Font6x8)
+
+        let text_style = MonoTextStyleBuilder::new()
+            .font(&FONT_6X10)
             .text_color(White)
             .background_color(Black)
             .build();
@@ -148,11 +150,15 @@ impl Drawable<BinaryColor> for &CalendarEventWidget {
         let border = self.bounds.into_styled(border_style);
 
         // Create the title and dates
-        let mut information = LinearLayout::vertical()
-            .with_alignment(horizontal::Center)
-            .add_view(Text::new(&self.title, Point::new(2, 0)).into_styled(text_style))
-            .add_view(Text::new(&self.date, Point::new(4, 0)).into_styled(text_style))
-            .arrange();
+        let mut information = LinearLayout::vertical(
+            Chain::new(Text::new(&self.title, Point::new(2, 0), text_style)).append(Text::new(
+                &self.date,
+                Point::new(4, 0),
+                text_style,
+            )),
+        )
+        .with_alignment(horizontal::Center)
+        .arrange();
 
         // Align the text within the border, with some margin on the left
         information
@@ -191,8 +197,10 @@ impl View for AnalogClock {
     }
 }
 
-impl Drawable<BinaryColor> for &AnalogClock {
-    fn draw<D: DrawTarget<BinaryColor>>(self, display: &mut D) -> Result<(), D::Error> {
+impl Drawable for &AnalogClock {
+    type Color = BinaryColor;
+
+    fn draw<D: DrawTarget<Color = Self::Color>>(self, display: &mut D) -> Result<(), D::Error> {
         println!(
             "drawing analog clock within {:?}. bounds = {:?}",
             display.display_area(),
