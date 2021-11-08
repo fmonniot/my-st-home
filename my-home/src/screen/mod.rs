@@ -28,7 +28,7 @@ pub enum ScreenMessage {
 impl crate::actor::Message for ScreenMessage {}
 
 // TODO Return error
-fn draw_text<D: DrawTarget<Color=BinaryColor>>(display: &mut D, text: &str, x: i32, y: i32) {
+fn draw_text<D: DrawTarget<Color = BinaryColor>>(display: &mut D, text: &str, x: i32, y: i32) {
     let style = MonoTextStyleBuilder::new()
         .font(&FONT_6X10)
         .text_color(White)
@@ -47,9 +47,9 @@ pub enum Frame {
 }
 
 /// Width of the display
-pub const WIDTH: i32 = 800;
+pub const WIDTH: u32 = 800;
 /// Height of the display
-pub const HEIGHT: i32 = 480;
+pub const HEIGHT: u32 = 480;
 
 impl Frame {
     /// State machine to update the current state with an update message
@@ -61,7 +61,10 @@ impl Frame {
     }
 
     /// Draw the current state onto a buffer. The buffer isn't cleared.
-    pub fn draw<D: DrawTarget<Color=BinaryColor>>(&self, display: &mut D) -> Result<(), D::Error> {
+    pub fn draw<D: DrawTarget<Color = BinaryColor>>(
+        &self,
+        display: &mut D,
+    ) -> Result<(), D::Error> {
         match &self {
             Frame::Calibration => draw_calibration(display),
             Frame::Empty => {
@@ -73,22 +76,27 @@ impl Frame {
     }
 }
 
-fn draw_calibration<D: DrawTarget<Color=BinaryColor>>(display: &mut D) -> Result<(), D::Error> {
+fn draw_calibration<D: DrawTarget<Color = BinaryColor>>(display: &mut D) -> Result<(), D::Error> {
     // Debug information
     // draw a rectangle around the screen
-    Rectangle::new(Point::new(1, 1), Point::new(WIDTH - 1, HEIGHT - 1))
+
+    Rectangle::new(Point::new(1, 1), Size::new(WIDTH - 2, HEIGHT - 2))
         .into_styled(PrimitiveStyle::with_stroke(White, 1))
         .draw(display)?;
 
     // Text in the four corners
     draw_text(display, "top-left", 1, 1);
-    draw_text(display, "top-right", WIDTH - 6 * 9 - 1, 1);
-    draw_text(display, "bottom-left", 1, HEIGHT - 8 - 1);
-    draw_text(display, "bottom-right", WIDTH - 6 * 12 - 1, HEIGHT - 8 - 1);
+    draw_text(display, "top-right", (WIDTH - 6 * 9 - 1) as i32, 1);
+    draw_text(display, "bottom-left", 1, (HEIGHT - 8 - 1) as i32);
+    draw_text(
+        display,
+        "bottom-right",
+        (WIDTH - 6 * 12 - 1) as i32,
+        (HEIGHT - 8 - 1) as i32,
+    );
 
     // Draw the frame (Fixed frame for now, will go into a pattern match to choose what to display)
-
-    let display_area = display.display_area();
+    let display_area = display.bounding_box();
 
     let mut clock = AnalogClock::new(Size::new(128, 128));
     clock.translate(Point::new(10, 10));
@@ -115,7 +123,7 @@ impl CalendarEventWidget {
         CalendarEventWidget {
             title: title.to_string(),
             date: date.to_string(),
-            bounds: Rectangle::with_size(Point::zero(), size),
+            bounds: Rectangle::new(Point::zero(), size),
         }
     }
 }
@@ -123,7 +131,7 @@ impl CalendarEventWidget {
 impl View for CalendarEventWidget {
     #[inline]
     fn translate(&mut self, by: Point) {
-        self.bounds.translate(by);
+        embedded_graphics::prelude::Transform::translate_mut(&mut self.bounds, by);
     }
 
     #[inline]
@@ -132,11 +140,14 @@ impl View for CalendarEventWidget {
     }
 }
 
-impl Drawable for &CalendarEventWidget {
+impl Drawable for CalendarEventWidget {
     type Color = BinaryColor;
+    type Output = ();
 
-
-    fn draw<D: DrawTarget<Color = Self::Color>>(self, display: &mut D) -> Result<(), D::Error> {
+    fn draw<D>(&self, display: &mut D) -> Result<Self::Output, D::Error>
+    where
+        D: DrawTarget<Color = Self::Color>,
+    {
         // Create styles
         let border_style = PrimitiveStyle::with_stroke(White, 1);
 
@@ -180,7 +191,7 @@ struct AnalogClock {
 impl AnalogClock {
     fn new(size: Size) -> AnalogClock {
         AnalogClock {
-            bounds: Rectangle::with_size(Point::zero(), size),
+            bounds: Rectangle::new(Point::zero(), size),
         }
     }
 }
@@ -188,7 +199,7 @@ impl AnalogClock {
 impl View for AnalogClock {
     #[inline]
     fn translate(&mut self, by: Point) {
-        self.bounds.translate(by);
+        embedded_graphics::prelude::Transform::translate_mut(&mut self.bounds, by);
     }
 
     #[inline]
@@ -197,13 +208,17 @@ impl View for AnalogClock {
     }
 }
 
-impl Drawable for &AnalogClock {
+impl Drawable for AnalogClock {
     type Color = BinaryColor;
+    type Output = ();
 
-    fn draw<D: DrawTarget<Color = Self::Color>>(self, display: &mut D) -> Result<(), D::Error> {
+    fn draw<D>(&self, display: &mut D) -> Result<Self::Output, D::Error>
+    where
+        D: DrawTarget<Color = Self::Color>,
+    {
         println!(
             "drawing analog clock within {:?}. bounds = {:?}",
-            display.display_area(),
+            display.bounding_box(),
             self.bounds
         );
 
