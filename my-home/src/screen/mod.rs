@@ -99,7 +99,7 @@ fn draw_calibration<D: DrawTarget<Color = BinaryColor>>(display: &mut D) -> Resu
     let display_area = display.bounding_box();
 
     let mut clock = AnalogClock::new(Size::new(128, 128));
-    clock.translate(Point::new(10, 10));
+    clock.translate_mut(Point::new(10, 10));
 
     let calendar = CalendarEventWidget::new("New event", "Thu 08 Apr", Size::new(200, 40));
 
@@ -130,7 +130,7 @@ impl CalendarEventWidget {
 
 impl View for CalendarEventWidget {
     #[inline]
-    fn translate(&mut self, by: Point) {
+    fn translate_impl(&mut self, by: Point) {
         embedded_graphics::prelude::Transform::translate_mut(&mut self.bounds, by);
     }
 
@@ -174,7 +174,7 @@ impl Drawable for CalendarEventWidget {
         // Align the text within the border, with some margin on the left
         information
             .align_to_mut(&border, horizontal::Left, vertical::Center)
-            .translate(Point::new(2, 0));
+            .translate_mut(Point::new(2, 0));
 
         // Draw everything
         border.draw(display)?;
@@ -198,7 +198,7 @@ impl AnalogClock {
 
 impl View for AnalogClock {
     #[inline]
-    fn translate(&mut self, by: Point) {
+    fn translate_impl(&mut self, by: Point) {
         embedded_graphics::prelude::Transform::translate_mut(&mut self.bounds, by);
     }
 

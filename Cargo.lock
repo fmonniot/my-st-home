@@ -316,15 +316,6 @@ checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
 
 [[package]]
 name = "embedded-graphics"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40a69991ceb896bd4810a0cf2bcc46fc94b7860573c71f965d8e5b3d66942fed"
-dependencies = [
- "byteorder",
-]
-
-[[package]]
-name = "embedded-graphics"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "750082c65094fbcc4baf9ba31583ce9a8bb7f52cadfb96f6164b1bc7f922f32b"
@@ -353,7 +344,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b889c087f6ddfba35047f9f0dfbd662aa05597110c937e5dbde641735d97fb1"
 dependencies = [
  "base64",
- "embedded-graphics 0.7.1",
+ "embedded-graphics",
  "image",
  "sdl2",
 ]
@@ -393,7 +384,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7adbc16ba694006a121bce08a8935186d16cb008a4c9e20c5e346517ad1e0ac8"
 dependencies = [
- "embedded-graphics 0.7.1",
+ "embedded-graphics",
  "embedded-layout-macros",
 ]
 
@@ -433,10 +424,10 @@ dependencies = [
 [[package]]
 name = "epd-waveshare"
 version = "0.5.0"
-source = "git+https://github.com/caemor/epd-waveshare?branch=main#d9254a68a29da3c2eb982328c89f104f3bfeb939"
+source = "git+https://github.com/caemor/epd-waveshare?branch=main#34a0d81b757edbb362a427a6429e74e5aea304ce"
 dependencies = [
  "bit_field",
- "embedded-graphics 0.6.2",
+ "embedded-graphics-core",
  "embedded-hal 0.2.6",
 ]
 
@@ -948,7 +939,7 @@ dependencies = [
  "downcast-rs",
  "ed25519-dalek",
  "either",
- "embedded-graphics 0.7.1",
+ "embedded-graphics",
  "embedded-hal 0.2.6",
  "embedded-layout",
  "env_logger",
@@ -1848,7 +1839,7 @@ checksum = "879f6906492a7cd215bfa4cf595b600146ccfac0c79bcbd1f3000162af5e8b06"
 name = "ui-designer"
 version = "0.1.0"
 dependencies = [
- "embedded-graphics 0.7.1",
+ "embedded-graphics",
  "embedded-graphics-simulator",
  "env_logger",
  "log",
