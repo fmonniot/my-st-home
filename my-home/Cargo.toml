@@ -23,7 +23,7 @@ lifx-core = "0.2"
 bytes = "1"
 mqtt-protocol = { version = "0.11", features = [ "tokio-codec" ] } # version = "0.11" when released
 rustls = "0.19"
-tokio-rustls = "0.22.0"
+tokio-rustls = "0.23.1"
 rustls-native-certs = "0.5.0"
 log = "0.4"
 env_logger = "0.9"
