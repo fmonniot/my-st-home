@@ -424,7 +424,7 @@ dependencies = [
 [[package]]
 name = "epd-waveshare"
 version = "0.5.0"
-source = "git+https://github.com/caemor/epd-waveshare?branch=main#34a0d81b757edbb362a427a6429e74e5aea304ce"
+source = "git+https://github.com/caemor/epd-waveshare?branch=main#2f589c5ad8529f50e6f637c67de68307ce2c95d1"
 dependencies = [
  "bit_field",
  "embedded-graphics-core",
