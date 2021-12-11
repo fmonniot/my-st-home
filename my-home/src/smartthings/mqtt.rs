@@ -3,7 +3,9 @@
 // - https://github.com/bytebeamio/rumqtt (Apache 2.0)
 // - https://github.com/zonyitoo/mqtt-rs (MIT)
 
-#![allow(warnings, unused, dead_code)] // Still working on this module :)
+// TODO This module has been in use for a while and those warnings
+// should be fixed instead of being ignored.
+#![allow(warnings, unused, dead_code)]
 
 use core::num::NonZeroU16;
 use futures::{Stream, StreamExt};
@@ -109,11 +111,16 @@ pub(crate) struct ClientOptions {
 
 impl ClientOptions {
     fn default<S: Into<String>>(host: S, port: u16) -> ClientOptions {
-        let mut tls_client_config = rustls::ClientConfig::new();
+        let mut root_store = rustls::RootCertStore::empty();
+        for cert in rustls_native_certs::load_native_certs().expect("could not load platform certs")
+        {
+            root_store.add(&rustls::Certificate(cert.0)).unwrap();
+        }
 
-        // Using platform certificates by default
-        tls_client_config.root_store =
-            rustls_native_certs::load_native_certs().expect("could not load platform certs");
+        let tls_client_config = rustls::ClientConfig::builder()
+            .with_safe_defaults()
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
 
         ClientOptions {
             host: host.into(),
@@ -440,13 +447,19 @@ mod runloop {
         Box<dyn std::error::Error>,
     > {
         use futures::StreamExt;
-        let c = Arc::new(opts.tls_client_config.clone());
-        let connector = TlsConnector::from(c);
-        let domain = DNSNameRef::try_from_ascii_str(&*opts.host)?;
-        let tcp = TcpStream::connect((opts.host.as_str(), opts.port)).await?;
-        let conn = connector.connect(domain, tcp).await?;
+        use std::convert::TryInto;
 
-        let f = Framed::new(conn, MqttCodec::new());
+        let config = Arc::new(opts.tls_client_config.clone());
+        let tls_connector = TlsConnector::from(config);
+
+        // Why can't that be done in one step ?
+        let s: &str = &opts.host;
+        let domain = s.try_into()?;
+
+        let tcp = TcpStream::connect((opts.host.as_str(), opts.port)).await?;
+        let tls_stream = tls_connector.connect(domain, tcp).await?;
+
+        let f = Framed::new(tls_stream, MqttCodec::new());
 
         let (write, read) = f.split();
 
