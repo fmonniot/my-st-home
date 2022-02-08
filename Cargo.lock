@@ -917,9 +917,9 @@ dependencies = [
 
 [[package]]
 name = "mqtt-protocol"
-version = "0.11.1"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61fc413163352d530adf360d4114fb54bc98c8e80b6625e3bbb3cdde23269395"
+checksum = "ca0b17380dc69fbcf5f967828cfd10e55028ba83a57da1f580c5b0792ab807ac"
 dependencies = [
  "byteorder",
  "bytes",
