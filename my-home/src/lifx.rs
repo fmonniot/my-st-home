@@ -8,7 +8,7 @@ use log::{debug, error, trace, warn};
 use std::{
     collections::HashMap,
     net::SocketAddr,
-    time::{Duration, Instant},
+    time::{Duration, Instant}, convert::TryInto,
 };
 use tokio_util::codec::{Decoder, Encoder};
 
@@ -471,9 +471,9 @@ fn handle_bulb_message(bulb: &mut BulbInfo, message: lifx_core::Message) {
                 }
             }
         }
-        lifx_core::Message::StateLabel { label } => bulb.name = Some(label.0),
-        lifx_core::Message::StateLocation { label, .. } => bulb.location = Some(label.0),
-        lifx_core::Message::StateGroup { label, .. } => bulb.group = Some(label.0),
+        lifx_core::Message::StateLabel { label } => bulb.name = Some(label.to_string()),
+        lifx_core::Message::StateLocation { label, .. } => bulb.location = Some(label.to_string()),
+        lifx_core::Message::StateGroup { label, .. } => bulb.group = Some(label.to_string()),
         lifx_core::Message::LightState {
             color,
             power,
@@ -484,11 +484,11 @@ fn handle_bulb_message(bulb: &mut BulbInfo, message: lifx_core::Message) {
             if let Color::Single(ref mut d) = bulb.color {
                 d.replace(color);
 
-                bulb.power_level = Some(power);
+                bulb.power_level = power.try_into().ok();
             }
-            bulb.name = Some(label.0);
+            bulb.name = Some(label.to_string());
         }
-        lifx_core::Message::StatePower { level } => bulb.power_level = Some(level),
+        lifx_core::Message::StatePower { level } => bulb.power_level = level.try_into().ok(),
         unsupported => {
             debug!("Received unsupported message: {:?}", unsupported);
         }
