@@ -75,7 +75,7 @@ struct Body {
 
 impl Body {
     fn generate(mn_id: String) -> Body {
-        let jti = uuid::Uuid::new_v4().to_hyphenated().to_string();
+        let jti = uuid::Uuid::new_v4().hyphenated().to_string();
         let sys_time = SystemTime::now();
         let iat = sys_time
             .duration_since(SystemTime::UNIX_EPOCH)
