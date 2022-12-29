@@ -31,7 +31,7 @@ env_logger = "0.10"
 thiserror = "1.0.38"
 either = "1.8.0"
 pid-lite = "1"
-async-trait = "0.1.59"
+async-trait = "0.1.60"
 downcast-rs = "1.2"
 
 
