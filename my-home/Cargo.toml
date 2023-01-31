@@ -18,7 +18,7 @@ tokio-util = { version = "0.7", features = ["codec", "net"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 futures = "0.3"
 futures-core = "0.3"
-lifx-core = "0.3.1"
+lifx-core = "0.4.0"
 bytes = "1"
 # Update whenever tokio-codec get updated to 0.7 there
 # mqtt-protocol = { version = "0.11", features = [ "tokio-codec" ] }
