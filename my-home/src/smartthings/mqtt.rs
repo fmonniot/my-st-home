@@ -321,7 +321,8 @@ mod runloop {
         sync::{broadcast, mpsc, oneshot, RwLock},
         time::{sleep_until, Duration, Instant},
     };
-    use tokio_rustls::{rustls::ClientConfig, webpki::DNSNameRef, TlsConnector};
+    use tokio_rustls::{rustls::ClientConfig, TlsConnector};
+    use webpki::DNSNameRef;
     use tokio_stream::StreamExt;
     use tokio_util::codec::{Decoder, Encoder, Framed};
 

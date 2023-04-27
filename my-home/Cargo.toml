@@ -33,6 +33,7 @@ either = "1.8.1"
 pid-lite = "1"
 async-trait = "0.1.67"
 downcast-rs = "1.2"
+webpki = { version = "0.22" }
 
 
 embedded-graphics = { version = "0.7.1" }
