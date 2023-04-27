@@ -24,7 +24,7 @@ bytes = "1"
 # mqtt-protocol = { version = "0.11", features = [ "tokio-codec" ] }
 mqtt-protocol = { git = "https://github.com/fmonniot/mqtt-rs", features = [ "tokio-codec" ] }
 rustls = "0.21"
-tokio-rustls = "0.23.4"
+tokio-rustls = "0.24.0"
 rustls-native-certs = "0.6.2"
 log = "0.4"
 env_logger = "0.10"
