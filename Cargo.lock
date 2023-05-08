@@ -1099,9 +1099,9 @@ checksum = "d4fd5641d01c8f18a23da7b6fe29298ff4b55afcccdf78973b24cf3175fee32e"
 
 [[package]]
 name = "pid-lite"
-version = "1.1.0"
+version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8026cfc44362845edfed2c561441e5dfcc4f01fbbd41f727604ad8423c1302d"
+checksum = "f720ae3bb3e477151eb926ac701c38ab864cec79a32bff371cde092a3659fda3"
 
 [[package]]
 name = "pin-project-lite"
