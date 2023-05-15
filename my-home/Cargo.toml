@@ -37,7 +37,7 @@ webpki = { version = "0.22" }
 
 
 embedded-graphics = { version = "0.7.1" }
-embedded-layout = "0.2"
+embedded-layout = "0.3"
 embedded-hal = {version = "0.2.6", features = ["unproven"]}
 epd-waveshare = { version = "0.5.0" }
 tsl_2591 = { path = "../tsl_2591" }
