@@ -298,9 +298,22 @@ checksum = "750082c65094fbcc4baf9ba31583ce9a8bb7f52cadfb96f6164b1bc7f922f32b"
 dependencies = [
  "az",
  "byteorder",
- "embedded-graphics-core",
- "float-cmp",
- "micromath",
+ "embedded-graphics-core 0.3.3",
+ "float-cmp 0.8.0",
+ "micromath 1.1.1",
+]
+
+[[package]]
+name = "embedded-graphics"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd2a8e0250a7e1212828166b01eed0219e488ebb2599f44624a29c9bd249f397"
+dependencies = [
+ "az",
+ "byteorder",
+ "embedded-graphics-core 0.4.0",
+ "float-cmp 0.9.0",
+ "micromath 2.0.0",
 ]
 
 [[package]]
@@ -314,13 +327,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "embedded-graphics-core"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba9ecd261f991856250d2207f6d8376946cd9f412a2165d3b75bc87a0bc7a044"
+dependencies = [
+ "az",
+ "byteorder",
+]
+
+[[package]]
 name = "embedded-graphics-simulator"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b889c087f6ddfba35047f9f0dfbd662aa05597110c937e5dbde641735d97fb1"
 dependencies = [
  "base64 0.13.1",
- "embedded-graphics",
+ "embedded-graphics 0.7.1",
  "image",
  "sdl2",
 ]
@@ -369,7 +392,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7adbc16ba694006a121bce08a8935186d16cb008a4c9e20c5e346517ad1e0ac8"
 dependencies = [
- "embedded-graphics",
+ "embedded-graphics 0.7.1",
  "embedded-layout-macros",
 ]
 
@@ -422,7 +445,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5502a0ed11effff2f47b69b83cf8d4325de86362b5ca37925fa1bf240522bbc"
 dependencies = [
  "bit_field",
- "embedded-graphics-core",
+ "embedded-graphics-core 0.3.3",
  "embedded-hal 0.2.7",
 ]
 
@@ -452,6 +475,15 @@ name = "float-cmp"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e1267f4ac4f343772758f7b1bdcbe767c218bbab93bb432acbf5162bbf85a6c4"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
+name = "float-cmp"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98de4bbd547a563b716d8dfa9aad1cb19bfab00f4fa09a6a4ed21dbcf44ce9c4"
 dependencies = [
  "num-traits",
 ]
@@ -886,6 +918,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc4010833aea396656c2f91ee704d51a6f1329ec2ab56ffd00bfd56f7481ea94"
 
 [[package]]
+name = "micromath"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39617bc909d64b068dcffd0e3e31679195b5576d0c83fadc52690268cc2b2b55"
+
+[[package]]
 name = "mime"
 version = "0.3.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -947,7 +985,7 @@ dependencies = [
  "downcast-rs",
  "ed25519-dalek",
  "either",
- "embedded-graphics",
+ "embedded-graphics 0.8.0",
  "embedded-hal 0.2.7",
  "embedded-layout",
  "env_logger",
@@ -1786,7 +1824,7 @@ checksum = "630bdcf245f78637c13ec01ffae6187cca34625e8c63150d424b59e55af2675e"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.4",
+ "syn 2.0.15",
 ]
 
 [[package]]
@@ -1901,7 +1939,7 @@ checksum = "dcf81ac59edc17cc8697ff311e8f5ef2d99fcbd9817b34cec66f90b6c3dfd987"
 name = "ui-designer"
 version = "0.1.0"
 dependencies = [
- "embedded-graphics",
+ "embedded-graphics 0.8.0",
  "embedded-graphics-simulator",
  "env_logger",
  "log",
