@@ -66,7 +66,7 @@ mod rasp {
 
         // Configure the screen before creating the run loop
         let epd7in5 =
-            Epd7in5::new(&mut spi, cs, busy, dc, rst, &mut delay).expect("eink initalize error");
+            Epd7in5::new(&mut spi, cs, busy, dc, rst, &mut delay, Some(1)).expect("eink initalize error");
 
         Screen {
             spi,
