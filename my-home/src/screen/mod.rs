@@ -1,6 +1,5 @@
 use embedded_graphics::{
     mono_font::{iso_8859_1::FONT_6X10, MonoTextStyleBuilder},
-    pixelcolor::BinaryColor,
     prelude::*,
     primitives::{Circle, Line, PrimitiveStyle, Rectangle},
     text::Text,
@@ -9,7 +8,9 @@ use embedded_layout::{
     layout::linear::{spacing::FixedMargin, LinearLayout},
     prelude::*,
 };
-use epd_waveshare::color::*;
+
+// TODO Update the lib to use BinaryColor instead of their own Color enum. Maybe.
+use epd_waveshare::color::{Color, Color::Black, Color::White};
 
 mod actor;
 mod delay;
@@ -28,7 +29,7 @@ pub enum ScreenMessage {
 impl crate::actor::Message for ScreenMessage {}
 
 // TODO Return error
-fn draw_text<D: DrawTarget<Color = BinaryColor>>(display: &mut D, text: &str, x: i32, y: i32) {
+fn draw_text<D: DrawTarget<Color = Color>>(display: &mut D, text: &str, x: i32, y: i32) {
     let style = MonoTextStyleBuilder::new()
         .font(&FONT_6X10)
         .text_color(White)
@@ -61,14 +62,14 @@ impl Frame {
     }
 
     /// Draw the current state onto a buffer. The buffer isn't cleared.
-    pub fn draw<D: DrawTarget<Color = BinaryColor>>(
+    pub fn draw<D: DrawTarget<Color = Color>>(
         &self,
         display: &mut D,
     ) -> Result<(), D::Error> {
         match &self {
             Frame::Calibration => draw_calibration(display),
             Frame::Empty => {
-                display.clear(BinaryColor::Off)?;
+                display.clear(Color::White)?;
 
                 Ok(())
             }
@@ -76,7 +77,7 @@ impl Frame {
     }
 }
 
-fn draw_calibration<D: DrawTarget<Color = BinaryColor>>(display: &mut D) -> Result<(), D::Error> {
+fn draw_calibration<D: DrawTarget<Color = Color>>(display: &mut D) -> Result<(), D::Error> {
     // Debug information
     // draw a rectangle around the screen
 
@@ -141,7 +142,7 @@ impl View for CalendarEventWidget {
 }
 
 impl Drawable for CalendarEventWidget {
-    type Color = BinaryColor;
+    type Color = Color;
     type Output = ();
 
     fn draw<D>(&self, display: &mut D) -> Result<Self::Output, D::Error>
@@ -209,7 +210,7 @@ impl View for AnalogClock {
 }
 
 impl Drawable for AnalogClock {
-    type Color = BinaryColor;
+    type Color = Color;
     type Output = ();
 
     fn draw<D>(&self, display: &mut D) -> Result<Self::Output, D::Error>

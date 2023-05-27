@@ -4,3 +4,7 @@ members = [
     "tsl_2591", # enable once we have moved to embedded-hal
     "ui-designer",
 ]
+
+[patch.crates-io]
+# Until it is updated to embedded-graphics 0.8.0
+epd-waveshare = { git = 'https://github.com/fmonniot/epd-waveshare.git' }

@@ -5,6 +5,7 @@ use embedded_graphics_simulator::{
 use log::{debug, info};
 use my_home::screen::Frame;
 use sdl2::keyboard::Keycode;
+use epd_waveshare::color::{Color};
 
 /// Width of the display
 const WIDTH: u32 = 800;
@@ -24,7 +25,7 @@ fn main() {
     let mut window = Window::new("My ST Home", &output_settings);
 
     // Create a new simulator display with 800x480 pixels.
-    let mut display: SimulatorDisplay<BinaryColor> =
+    let mut display: SimulatorDisplay<Color> =
         SimulatorDisplay::new(Size::new(WIDTH + 100, HEIGHT));
 
     let mut frame = Frame::Calibration;

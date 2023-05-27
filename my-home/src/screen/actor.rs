@@ -1,5 +1,6 @@
 use super::{screen, Frame, Screen, ScreenMessage};
 use crate::actor::{Actor, Context, Message, Receiver};
+use embedded_graphics::draw_target::DrawTarget;
 use epd_waveshare::{color::*, epd7in5_v2::Display7in5, graphics::Display};
 use log::info;
 
@@ -77,7 +78,7 @@ impl Receiver<DrawFrame> for UserInterface {
         // have inversed pixel luminosity: LCD needs current to shine whereas e-ink needs
         // current to move the black molecule to the surface.
         // TODO Aliases which change depending on the compilation target ?
-        self.display.clear_buffer(Color::Black);
+        self.display.clear(Color::Black);
 
         // update the buffer
         new_frame.draw(&mut self.display).expect("paint frame");
