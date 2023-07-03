@@ -31,7 +31,7 @@ env_logger = "0.10"
 thiserror = "1.0.40"
 either = "1.8.1"
 pid-lite = "1"
-async-trait = "0.1.68"
+async-trait = "0.1.69"
 downcast-rs = "1.2"
 webpki = { version = "0.22" }
 
