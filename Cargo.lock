@@ -942,13 +942,11 @@ dependencies = [
 [[package]]
 name = "mqtt-protocol"
 version = "0.11.2"
-source = "git+https://github.com/fmonniot/mqtt-rs#60615a2a5066b2a6b262c7505685ea8cb38b00d2"
+source = "git+https://github.com/fmonniot/mqtt-rs#50735764eaa344dd3a910c56f7eb84358b818e5a"
 dependencies = [
  "byteorder",
  "bytes",
- "lazy_static",
  "log",
- "regex",
  "thiserror",
  "tokio",
  "tokio-util 0.7.8",
