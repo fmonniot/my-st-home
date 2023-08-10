@@ -36,7 +36,7 @@ downcast-rs = "1.2"
 webpki = { version = "0.22" }
 
 
-embedded-graphics = { version = "0.8.0" }
+embedded-graphics = { version = "0.8.1" }
 embedded-layout = "0.3"
 embedded-hal = {version = "0.2.6", features = ["unproven"]}
 epd-waveshare = { version = "0.5.0" }
