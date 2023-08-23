@@ -378,9 +378,9 @@ dependencies = [
 
 [[package]]
 name = "embedded-layout"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d3dc955af9d9011835bbb92ef7de625e493338e3535a51f754bf1ee846282bb"
+checksum = "b08725b7f9021377a7f84f14089b4980a30b06c5e424288b34482f17cf513369"
 dependencies = [
  "embedded-graphics",
  "embedded-layout-macros",
