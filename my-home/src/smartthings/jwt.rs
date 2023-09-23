@@ -1,21 +1,29 @@
 //! JWT (custom implementation for now. TODO see if we can use a standard crate)
-use ed25519_dalek::{Keypair, PublicKey, SecretKey, Signer};
+
+use base64ct::{Base64, Encoding};
+use ed25519_dalek::{Signer, SigningKey};
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 
 use crate::configuration::Configuration;
 
-pub(crate) fn generate(cfg: &Configuration) -> Result<String, Box<dyn std::error::Error>> {
+pub(crate) fn generate(cfg: &Configuration) -> Result<String, JwtError> {
     // Key deserialization experimentation (could probably go into configuration)
-    let public_key_bytes = base64::decode(&cfg.device_info.public_key)?;
-    let private_key_bytes = base64::decode(&cfg.device_info.private_key)?;
+    let mut key_bytes = [0u8; 64];
+    let signing_key = Base64::decode_vec(&cfg.device_info.private_key)?;
+    let verifying_key = Base64::decode_vec(&cfg.device_info.public_key)?;
 
-    let public_key: PublicKey = PublicKey::from_bytes(&public_key_bytes)?;
-    let secret_key: SecretKey = SecretKey::from_bytes(&private_key_bytes)?;
-    let keypair = Keypair {
-        public: public_key,
-        secret: secret_key,
-    };
+    if signing_key.len() != 32 {
+        return Err(JwtError::InvalidKeyLength("private", signing_key.len()));
+    }
+    if verifying_key.len() != 32 {
+        return Err(JwtError::InvalidKeyLength("public", verifying_key.len()));
+    }
+
+    key_bytes[..32].copy_from_slice(&signing_key);
+    key_bytes[32..].copy_from_slice(&verifying_key);
+
+    let keypair = SigningKey::from_keypair_bytes(&key_bytes)?;
 
     let header = Header::with_serial(&cfg.device_info.serial_number);
     let body = Body::generate(cfg.onboarding.mn_id.clone());
@@ -24,21 +32,22 @@ pub(crate) fn generate(cfg: &Configuration) -> Result<String, Box<dyn std::error
     Ok(jwt)
 }
 
-fn generate_jwt(
-    header: Header,
-    body: Body,
-    keypair: &Keypair,
-) -> Result<String, Box<dyn std::error::Error>> {
+fn generate_jwt(header: Header, body: Body, keypair: &SigningKey) -> Result<String, JwtError> {
     let h = serde_json::to_vec(&header)?;
     let b = serde_json::to_vec(&body)?;
 
-    let h2 = base64::encode(h);
-    let b2 = base64::encode(b);
+    let h2 = Base64::encode_string(&h);
+    let b2 = Base64::encode_string(&b);
 
     let msg = format!("{}.{}", h2, b2);
     let signature = keypair.try_sign(msg.as_bytes())?;
 
-    Ok(format!("{}.{}.{}", h2, b2, base64::encode(signature)))
+    Ok(format!(
+        "{}.{}.{}",
+        h2,
+        b2,
+        Base64::encode_string(&signature.to_bytes())
+    ))
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -65,6 +74,7 @@ impl Header {
     }
 }
 
+
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct Body {
@@ -85,4 +95,20 @@ impl Body {
 
         Body { iat, jti, mn_id }
     }
+}
+
+
+#[derive(thiserror::Error, Debug)]
+pub enum JwtError {
+    #[error("The given {0} key should have 32 bytes but had {1}")]
+    InvalidKeyLength(&'static str, usize),
+
+    #[error("Couldn't decode key from base64 encoded string")]
+    DecodeBase64(#[from] base64ct::Error),
+
+    #[error("Invalid ED25519 signature")]
+    Signature(#[from] ed25519_dalek::SignatureError),
+
+    #[error("Couldn't serialize header or body")]
+    Serialization(#[from] serde_json::Error),
 }
