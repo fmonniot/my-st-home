@@ -14,14 +14,9 @@ jobs:
     name: Test Suite
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
           lfs: true
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
@@ -31,15 +26,32 @@ jobs:
           sudo add-apt-repository -y "deb http://archive.ubuntu.com/ubuntu `lsb_release -sc` main universe restricted multiverse"
           sudo apt-get update -y -qq
           sudo apt-get install libsdl2-dev
-      - uses: actions/cache@v2
-        with:
-          path: |
-            target
-            /usr/share/rust/.cargo/bin/
-            /usr/share/rust/.cargo/registry/index/
-            /usr/share/rust/.cargo/registry/cache/
-            /usr/share/rust/.cargo/git/db/
-          key: ${{ runner.OS }}-test-suite-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.OS }}-test-suite-
+      - uses: Swatinem/rust-cache@v2
       - run: cargo test
+
+  fmt:
+    name: Check formatting
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions-rs-plus/clippy-check@v2.1.1
+        with:
+          args: --all-features
