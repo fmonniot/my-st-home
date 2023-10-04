@@ -74,7 +74,6 @@ impl Header {
     }
 }
 
-
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct Body {
@@ -96,7 +95,6 @@ impl Body {
         Body { iat, jti, mn_id }
     }
 }
-
 
 #[derive(thiserror::Error, Debug)]
 pub enum JwtError {

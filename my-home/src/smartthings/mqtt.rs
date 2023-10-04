@@ -322,9 +322,9 @@ mod runloop {
         time::{sleep_until, Duration, Instant},
     };
     use tokio_rustls::{rustls::ClientConfig, TlsConnector};
-    use webpki::DNSNameRef;
     use tokio_stream::StreamExt;
     use tokio_util::codec::{Decoder, Encoder, Framed};
+    use webpki::DNSNameRef;
 
     #[derive(Debug, thiserror::Error)]
     pub(crate) enum HandleError {

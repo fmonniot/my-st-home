@@ -7,8 +7,9 @@ use lifx_core::{get_product_info, BuildOptions, FrameAddress, PowerLevel, RawMes
 use log::{debug, error, trace, warn};
 use std::{
     collections::HashMap,
+    convert::TryInto,
     net::SocketAddr,
-    time::{Duration, Instant}, convert::TryInto,
+    time::{Duration, Instant},
 };
 use tokio_util::codec::{Decoder, Encoder};
 

@@ -65,8 +65,8 @@ mod rasp {
         let mut delay = Delay {};
 
         // Configure the screen before creating the run loop
-        let epd7in5 =
-            Epd7in5::new(&mut spi, cs, busy, dc, rst, &mut delay, Some(1)).expect("eink initalize error");
+        let epd7in5 = Epd7in5::new(&mut spi, cs, busy, dc, rst, &mut delay, Some(1))
+            .expect("eink initalize error");
 
         Screen {
             spi,

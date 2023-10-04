@@ -62,10 +62,7 @@ impl Frame {
     }
 
     /// Draw the current state onto a buffer. The buffer isn't cleared.
-    pub fn draw<D: DrawTarget<Color = Color>>(
-        &self,
-        display: &mut D,
-    ) -> Result<(), D::Error> {
+    pub fn draw<D: DrawTarget<Color = Color>>(&self, display: &mut D) -> Result<(), D::Error> {
         match &self {
             Frame::Calibration => draw_calibration(display),
             Frame::Empty => {

@@ -2,10 +2,10 @@ use embedded_graphics::{pixelcolor::BinaryColor, prelude::*};
 use embedded_graphics_simulator::{
     BinaryColorTheme, OutputSettingsBuilder, SimulatorDisplay, SimulatorEvent, Window,
 };
+use epd_waveshare::color::Color;
 use log::{debug, info};
 use my_home::screen::Frame;
 use sdl2::keyboard::Keycode;
-use epd_waveshare::color::{Color};
 
 /// Width of the display
 const WIDTH: u32 = 800;
