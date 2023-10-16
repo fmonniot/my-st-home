@@ -305,20 +305,20 @@ impl ActorSystem {
         let _handle = tokio::spawn(async move {
             // Those assignment aren't strictly needed, but they make it easier to see what
             // was moved inside the actor run loop.
-            let path = path;
+            let actor_path = path;
             let mut mailbox = rx;
             let mut actor = actor;
             let context = context;
 
-            debug!("Actor {} running mail loop", path);
+            debug!("Actor {} running mail loop", actor_path);
 
             while let Some(mut envelope) = mailbox.recv().await {
-                trace!("[{}] received message", path);
+                trace!("[{}] received message", actor_path);
                 envelope.process_message(&context, &mut actor);
             }
 
             actor.post_stop(&context);
-            trace!("Actor {} has stopped", path)
+            trace!("Actor {} has stopped", actor_path)
         });
 
         trace!("returning address {:?}", addr);
