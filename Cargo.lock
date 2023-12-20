@@ -1367,9 +1367,9 @@ dependencies = [
 
 [[package]]
 name = "rppal"
-version = "0.16.0"
+version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23aff72e177b0e0b0e0801bbe9f41de2abafd396dfb69af9c602ffba8c2091b3"
+checksum = "8d136b79fe4b07246bb6bcc67646e5d2f060b84f7d04a6d052b365249ad14e4a"
 dependencies = [
  "embedded-hal 0.2.7",
  "embedded-hal 1.0.0-rc.2",
