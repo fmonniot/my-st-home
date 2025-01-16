@@ -8,5 +8,4 @@ impl embedded_hal::delay::DelayNs for Delay {
     fn delay_ns(&mut self, ns: u32) {
         thread::sleep(Duration::new(0, ns))
     }
-    
 }
