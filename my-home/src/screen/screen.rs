@@ -31,7 +31,7 @@ mod rasp {
 
     pub struct Screen {
         spi: Spi,
-        screen: Epd7in5<Spi, OutputPin, InputPin, OutputPin, OutputPin, Delay>,
+        screen: Epd7in5<Spi, InputPin, OutputPin, OutputPin, Delay>,
         delay: Delay,
     }
 
@@ -57,7 +57,6 @@ mod rasp {
             Spi::new(Bus::Spi0, SlaveSelect::Ss0, 4_000_000, Mode::Mode0).expect("spi bus");
 
         let gpio = Gpio::new().expect("gpio");
-        let cs = gpio.get(8).expect("CS").into_output();
         let busy = gpio.get(24).expect("BUSY").into_input();
         let dc = gpio.get(25).expect("DC").into_output();
         let rst = gpio.get(17).expect("RST").into_output();
@@ -65,7 +64,7 @@ mod rasp {
         let mut delay = Delay {};
 
         // Configure the screen before creating the run loop
-        let epd7in5 = Epd7in5::new(&mut spi, cs, busy, dc, rst, &mut delay, Some(1))
+        let epd7in5 = Epd7in5::new(&mut spi, busy, dc, rst, &mut delay, Some(1))
             .expect("eink initalize error");
 
         Screen {
