@@ -27,10 +27,10 @@ mod rasp {
     use super::super::delay::Delay;
     use epd_waveshare::{epd7in5_v2::Epd7in5, prelude::*};
     use rppal::gpio::{Gpio, InputPin, OutputPin};
-    use rppal::spi::{Bus, Error, Mode, SlaveSelect, Spi};
+    use rppal::spi::{Bus, Error, Mode, SlaveSelect, Spi, SimpleHalSpiDevice};
 
     pub struct Screen {
-        spi: Spi,
+        spi: SimpleHalSpiDevice,
         screen: Epd7in5<Spi, InputPin, OutputPin, OutputPin, Delay>,
         delay: Delay,
     }
@@ -53,8 +53,9 @@ mod rasp {
     // TODO Return a Result
     pub fn create() -> Screen {
         // Configure SPI and GPIO
-        let mut spi =
+        let spi_bus =
             Spi::new(Bus::Spi0, SlaveSelect::Ss0, 4_000_000, Mode::Mode0).expect("spi bus");
+        let mut spi = SimpleHalSpiDevice::new(spi_bus);
 
         let gpio = Gpio::new().expect("gpio");
         let busy = gpio.get(24).expect("BUSY").into_input();
