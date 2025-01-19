@@ -27,7 +27,7 @@ mod rasp {
     use super::super::delay::Delay;
     use epd_waveshare::{epd7in5_v2::Epd7in5, prelude::*};
     use rppal::gpio::{Gpio, InputPin, OutputPin};
-    use rppal::spi::{Bus, Error, Mode, SlaveSelect, Spi, SimpleHalSpiDevice};
+    use rppal::spi::{Bus, Error, Mode, SimpleHalSpiDevice, SlaveSelect, Spi};
 
     pub struct Screen {
         spi: SimpleHalSpiDevice,
