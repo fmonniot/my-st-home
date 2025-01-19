@@ -31,7 +31,7 @@ mod rasp {
 
     pub struct Screen {
         spi: SimpleHalSpiDevice,
-        screen: Epd7in5<Spi, InputPin, OutputPin, OutputPin, Delay>,
+        screen: Epd7in5<SimpleHalSpiDevice, InputPin, OutputPin, OutputPin, Delay>,
         delay: Delay,
     }
 
