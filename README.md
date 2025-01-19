@@ -52,6 +52,8 @@ Note: When doing a release, pass the `--release` flag and look in the `release`
 
 Note 2: the `cross` docker image doesn't have SDL2, so we shouldn't try to build the `ui-designer` project in that environment. Selecting the correct crate with `-p` is thus important.
 
+We have a docker image defined in this project that can be built with `docker build -t fmonniot/my-st-home-build .` to get access to SDL2 to help testing things. Or at least that's the aim, for some reason cross isn't able to find it. Oh well, back to no SDL testing.
+
 # Running on mac/windows
 
 TODO Will be obsolete with the `ui-designer` sub-crate.

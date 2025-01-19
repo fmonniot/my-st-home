@@ -5,3 +5,6 @@ members = [
     "ui-designer",
 ]
 
+
+[workspace.metadata.cross.target.armv7-unknown-linux-gnueabihf]
+#image = "fmonniot/my-st-home-build:latest"
