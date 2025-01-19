@@ -5,6 +5,6 @@ members = [
     "ui-designer",
 ]
 
-[patch.crates-io]
-# Until it is updated to embedded-graphics 0.8.0
-epd-waveshare = { git = 'https://github.com/fmonniot/epd-waveshare.git' }
+
+[workspace.metadata.cross.target.armv7-unknown-linux-gnueabihf]
+#image = "fmonniot/my-st-home-build:latest"

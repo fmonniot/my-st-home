@@ -1,6 +1,6 @@
 use embedded_hal_mock::{
     common::Generic,
-    eh0::i2c::{Mock as I2cMock, Transaction as I2cTrans},
+    eh1::i2c::{Mock as I2cMock, Transaction as I2cTrans},
 };
 use tsl_2591::TSL2591Sensor;
 

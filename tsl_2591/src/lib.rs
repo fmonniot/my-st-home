@@ -8,7 +8,7 @@ use std::fmt::{Debug, Display};
 // TODO Not no_std at the time because of std::error::Error. It should be easy
 // to remove them and we can go no_std. Note that means my-home will probably need
 // a newtype around that error to be able to still work with Error.
-use embedded_hal::blocking::i2c;
+use embedded_hal::i2c;
 
 mod types;
 pub use types::{Gain, IntegrationTime, TSL2591Error};
@@ -47,7 +47,7 @@ pub struct TSL2591Sensor<I2C> {
 // TODO impl separated in 3 or 4 sections: no constraints, write, read, write+read
 impl<I2C, E> TSL2591Sensor<I2C>
 where
-    I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E>,
+    I2C: i2c::I2c<Error = E>,
     E: Debug + Display,
 {
     /// Construct a new TSL2591 sensor on the given i2c bus.
