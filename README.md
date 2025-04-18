@@ -86,3 +86,8 @@ A collection of links which loosely relate to the tasks defined above.
 - https://github.com/eminence/lifx
 - https://github.com/caemor/epd-waveshare
 - https://github.com/tnkemdilim/wifi-rs
+
+A collection of tabs I had opened when I stopped working on this project:
+- https://www.waveshare.com/media/catalog/product/cache/1/image/800x800/9df78eab33525d08d6e5fb8d27136e95/7/_/7.5inch-e-paper-hat-4_3.jpg
+- https://github.com/fontello/meteocons.font
+- https://crates.io/crates/ssd1675
