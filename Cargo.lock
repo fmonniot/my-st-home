@@ -1015,7 +1015,7 @@ dependencies = [
  "pid-lite",
  "reqwest",
  "rppal",
- "rustls 0.21.12",
+ "rustls 0.22.4",
  "rustls-native-certs",
  "serde",
  "serde_json",
