@@ -114,9 +114,7 @@ impl ClientOptions {
         let mut root_store = rustls::RootCertStore::empty();
         for cert in rustls_native_certs::load_native_certs().expect("could not load platform certs")
         {
-            root_store
-                .add(cert)
-                .unwrap();
+            root_store.add(cert).unwrap();
         }
 
         let tls_client_config = rustls::ClientConfig::builder()
