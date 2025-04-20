@@ -120,7 +120,6 @@ impl ClientOptions {
         }
 
         let tls_client_config = rustls::ClientConfig::builder()
-            .with_safe_defaults()
             .with_root_certificates(root_store)
             .with_no_client_auth();
 
