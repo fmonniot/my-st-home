@@ -23,8 +23,8 @@ bytes = "1"
 # Update whenever tokio-codec get updated to 0.7 there
 # mqtt-protocol = { version = "0.11", features = [ "tokio-codec" ] }
 mqtt-protocol = { git = "https://github.com/fmonniot/mqtt-rs", features = [ "tokio-codec" ] }
-rustls = "0.21"
-tokio-rustls = "0.24.1"
+rustls = "0.22"
+tokio-rustls = "0.25.0"
 rustls-native-certs = "0.8.1"
 log = "0.4"
 env_logger = "0.11"

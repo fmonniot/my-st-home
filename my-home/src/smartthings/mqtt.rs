@@ -114,13 +114,10 @@ impl ClientOptions {
         let mut root_store = rustls::RootCertStore::empty();
         for cert in rustls_native_certs::load_native_certs().expect("could not load platform certs")
         {
-            root_store
-                .add(&rustls::Certificate(cert.as_ref().into()))
-                .unwrap();
+            root_store.add(cert).unwrap();
         }
 
         let tls_client_config = rustls::ClientConfig::builder()
-            .with_safe_defaults()
             .with_root_certificates(root_store)
             .with_no_client_auth();
 
@@ -457,10 +454,10 @@ mod runloop {
 
         // Why can't that be done in one step ?
         let s: &str = &opts.host;
-        let domain = s.try_into()?;
+        let domain: rustls::pki_types::ServerName<'_> = s.try_into()?;
 
         let tcp = TcpStream::connect((opts.host.as_str(), opts.port)).await?;
-        let tls_stream = tls_connector.connect(domain, tcp).await?;
+        let tls_stream = tls_connector.connect(domain.to_owned(), tcp).await?;
 
         let f = Framed::new(tls_stream, MqttCodec::new());
 
