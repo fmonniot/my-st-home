@@ -1,3 +1,5 @@
+Recent changes from the SmartThings platform made this project no longer practicable. It has been archived to indicate that fact.
+
 # my-st-home
 
 Provides some features for my smart home:
